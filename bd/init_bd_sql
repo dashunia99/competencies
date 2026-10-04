@@ -1,0 +1,67 @@
+CREATE TABLE roles (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE grades (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE stacks (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE users (
+id SERIAL PRIMARY KEY,
+fio VARCHAR(255) NOT NULL,
+email VARCHAR(255) UNIQUE NOT NULL,
+password VARCHAR(255) NOT NULL,
+grade_id INTEGER REFERENCES grades(id) ON DELETE SET NULL,
+stack_id INTEGER REFERENCES stacks(id) ON DELETE SET NULL
+);
+
+CREATE TABLE user_roles(
+user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+PRIMARY KEY(user_id, role_id)
+);
+
+CREATE TABLE competencies (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL,
+description TEXT,
+parent_id INTEGER REFERENCES competencies(id) ON DELETE CASCADE
+);
+
+CREATE TABLE materials (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL,
+link VARCHAR(255) NOT NULL,
+competency_id INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE
+);
+CREATE TABLE tasks (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL,
+description TEXT,
+competency_id INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE
+);
+
+CREATE TABLE learning_programs (
+id SERIAL PRIMARY KEY,
+name VARCHAR(255) NOT NULL,
+description TEXT
+);
+
+CREATE TABLE program_competencies (
+program_id INTEGER NOT NULL REFERENCES learning_programs(id) ON DELETE CASCADE,
+competency_id INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+PRIMARY KEY(program_id, competency_id)
+);
+CREATE TABLE user_progress (
+id SERIAL PRIMARY KEY,
+user_id INTEGER  NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+competency_id INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
+status VARCHAR(255) NOT NULL
+);
