@@ -1,10 +1,8 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime
 from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Boolean
 
-# Создаем базовый класс, от которого наследуются все таблицы.
-# Именно его потом будет читать Alembic (Base.metadata)
 Base = declarative_base()
-
 
 # ==========================================
 # БЛОК 1: СПРАВОЧНИКИ
@@ -32,12 +30,19 @@ class Stack(Base):
 # ==========================================
 class User(Base):
     __tablename__ = 'users'
+
     id = Column(Integer, primary_key=True)
-    fio = Column(String)
+    fio = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False)
-    # Если грейд удалят, у юзера останется NULL, сам юзер не удалится
+    password = Column(String, nullable=False)  # Здесь хранится наш bcrypt-хеш!
+    is_active = Column(Boolean, default=True)  # Добавили поле активности
+
     grade_id = Column(Integer, ForeignKey('grades.id', ondelete='SET NULL'), nullable=True)
+
+    # Удобные связи для быстрого получения названий грейда, ролей и стеков:
+    grade = relationship("Grade")
+    roles = relationship("Role", secondary="user_roles")
+    stacks = relationship("Stack", secondary="user_stacks")
 
 
 class UserRole(Base):
@@ -115,3 +120,12 @@ class UserProgress(Base):
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
     competency_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'))
     status = Column(String)
+
+class UserTaskProgress(Base):
+    __tablename__ = 'user_task_progress'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    task_id = Column(Integer, ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False)
+    status = Column(String, default="Не начато") # "Не начато", "В работе", "Выполнено"
+    started_at = Column(DateTime, nullable=True)  # Время начала по требованию техлида
