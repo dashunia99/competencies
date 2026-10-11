@@ -6,6 +6,7 @@ class CreateUserSchema(BaseModel):
     fio: str
     email: EmailStr
     password: str
+    role_name: Optional[str] = "Сотрудник"  # Можно указать: Администратор, Эксперт, Сотрудник
     grade_id: Optional[int] = None
 
 
@@ -22,5 +23,4 @@ class UserSchema(BaseModel):
         from_attributes = True
 
 
-# Делаем синоним, чтобы и UserSchema, и UserMeSchema работали одинаково:
 UserMeSchema = UserSchema

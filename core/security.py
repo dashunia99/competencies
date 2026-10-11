@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
 from core.database import get_db
@@ -15,8 +15,8 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
-# указывает Swagger, куда слать логин/пароль для получения токена
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+security = HTTPBearer()
 
 
 # Утилиты для работы с паролями
@@ -53,9 +53,10 @@ def create_refresh_token(user_id: int) -> str:
     return create_token(payload, timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> User:
+    token = credentials.credentials
     """
     Зависимость для защиты эндпоинтов:
     - Извлекает токен из заголовка Authorization: Bearer <token>.
