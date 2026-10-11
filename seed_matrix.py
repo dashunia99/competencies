@@ -3,7 +3,7 @@ import pandas as pd
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models.base import Stack, Competency
-
+from core.database import SessionLocal
 # (или импортируй готовый URL/engine из своего конфига, если он у тебя вынесен)
 DATABASE_URL = "postgresql+psycopg2://postgres:1324354657@localhost:5432/webant_skills_db"  # <-- замени на свои данные подключения
 

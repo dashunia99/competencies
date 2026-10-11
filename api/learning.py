@@ -25,6 +25,71 @@ from schemas.learning import (
 router = APIRouter(prefix="", tags=["Обучение и программы"])
 
 
+#  Личный кабинет сотрудника
+@router.get(
+    "/users/me/overview",
+    summary="[Сотрудник] Мой личный кабинет: стек, программы, темы и материалы",
+)
+def get_my_overview(
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user),
+):
+    # 1. Достаем стек и грейд сотрудника
+    stack_name = current_user.stacks[0].name if current_user.stacks else None
+    grade_name = current_user.grade.name if current_user.grade else None
+    role_name = current_user.roles[0].name if current_user.roles else None
+
+    # 2. Находим назначенные программы сотрудника
+    user_programs = db.query(UserProgram).filter(UserProgram.user_id == current_user.id).all()
+
+    programs_data = []
+    for up in user_programs:
+        program = db.query(LearningProgram).filter(LearningProgram.id == up.program_id).first()
+        if not program:
+            continue
+
+        # Подтягиваем темы программы
+        prog_comps = db.query(ProgramCompetency).filter(ProgramCompetency.program_id == program.id).all()
+        comp_ids = [pc.competency_id for pc in prog_comps]
+        competencies = db.query(Competency).filter(Competency.id.in_(comp_ids)).all()
+
+        topics_list = []
+        for comp in competencies:
+            materials = db.query(Material).filter(Material.competency_id == comp.id).all()
+            tasks = db.query(Task).filter(Task.competency_id == comp.id).all()
+
+            topics_list.append({
+                "id": comp.id,
+                "name": comp.name,
+                "description": comp.description,
+                "materials": [
+                    {"id": m.id, "name": m.name, "link": m.link} for m in materials
+                ],
+                "tasks": [
+                    {"id": t.id, "name": t.name, "description": t.description} for t in tasks
+                ]
+            })
+
+        programs_data.append({
+            "id": program.id,
+            "name": program.name,
+            "description": program.description,
+            "status": up.status,
+            "topics": topics_list
+        })
+
+    # Возвращаем сотруднику всю его учебную вселенную в одном ответе:
+    return {
+        "user_info": {
+            "id": current_user.id,
+            "fio": current_user.fio,
+            "email": current_user.email,
+            "role": role_name,
+            "stack": stack_name,
+            "grade": grade_name
+        },
+        "assigned_programs": programs_data
+    }
 # 3. GET /api/v1/users/{user_id}/programs — получение назначенных программ
 @router.get(
     "/users/{user_id}/programs",
@@ -36,6 +101,15 @@ def get_user_programs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # 🔒 ЗАЩИТА ОТ IDOR (только что придуманная Машей!):
+    # Сотрудник может смотреть ТОЛЬКО свои программы!
+    current_role = current_user.roles[0].name if current_user.roles else None
+    if current_role == "Сотрудник" and current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ запрещен: вы не можете просматривать программы других сотрудников!",
+        )
+
     user_programs = db.query(UserProgram).filter(UserProgram.user_id == user_id).all()
     result = []
     for up in user_programs:
@@ -185,3 +259,25 @@ def start_assignment(
         "status": progress.status,
         "started_at": progress.started_at,
     }
+# 8. GET /api/v1/directions — Список всех стеков/направлений
+@router.get("/directions", summary="Список направлений и стеков")
+def get_directions(db: Session = Depends(get_db)):
+    from app.models.base import Stack
+    stacks = db.query(Stack).all()
+    return [{"id": s.id, "name": s.name} for s in stacks]
+
+
+# 9. GET /api/v1/directions/{stack_id}/competency-matrix — Матрица компетенций стека
+@router.get("/directions/{stack_id}/competency-matrix", summary="Матрица компетенций стека")
+def get_competency_matrix(stack_id: int, db: Session = Depends(get_db)):
+    competencies = db.query(Competency).filter(Competency.stack_id == stack_id).all()
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "description": c.description,
+            "level": c.level,
+            "parent_id": c.parent_id
+        }
+        for c in competencies
+    ]
