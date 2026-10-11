@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
 from sqlalchemy.orm import declarative_base, relationship
 
 # Создаем базовый класс, от которого наследуются все таблицы.
@@ -110,8 +111,10 @@ class UserProgram(Base):
 
 
 class UserProgress(Base):
-    __tablename__ = 'user_progress'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
-    competency_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'))
-    status = Column(String)
+    __tablename__ = "user_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    competency_id = Column(Integer, nullable=False)
+    status = Column(String, default="Не начато")
+    started_at = Column(DateTime, default=datetime.utcnow)
