@@ -58,17 +58,31 @@ class UserStack(Base):
 # ==========================================
 # БЛОК 3: БИБЛИОТЕКА КОНТЕНТА (ТЕМЫ)
 # ==========================================
+# НОВАЯ ТАБЛИЦА: Разделы (дерево матрицы)
+class CompetencyBlock(Base):
+    __tablename__ = 'competency_blocks'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    # Ссылка на саму себя для вложенности разделов (дерево)
+    parent_id = Column(Integer, ForeignKey('competency_blocks.id', ondelete='CASCADE'), nullable=True)
+
+    # Опционально: relationship для удобной работы в Python
+    parent = relationship("CompetencyBlock", remote_side=[id], backref="children")
+
+
+# ОБНОВЛЕННАЯ ТАБЛИЦА: Компетенции
 class Competency(Base):
     __tablename__ = 'competencies'
     id = Column(Integer, primary_key=True)
     stack_id = Column(Integer, ForeignKey('stacks.id', ondelete='CASCADE'), nullable=True)
+
+    # НОВОЕ ПОЛЕ: Привязываем компетенцию к разделу
+    block_id = Column(Integer, ForeignKey('competency_blocks.id', ondelete='CASCADE'), nullable=True)
+
     name = Column(String, nullable=False)
     description = Column(Text)
     level = Column(Integer)
-    parent_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'), nullable=True)
-
-    parent = relationship("Competency", remote_side=[id], backref="children")
-
+    # дерево строится через competency_blocks!
 
 
 class Material(Base):
