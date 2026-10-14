@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime
 from sqlalchemy.orm import declarative_base, relationship
 
 # Создаем базовый класс, от которого наследуются все таблицы.
@@ -23,8 +24,9 @@ class Grade(Base):
 
 class Stack(Base):
     __tablename__ = 'stacks'
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)  # <-- добавляем unique=True
 
 
 # ==========================================
@@ -56,18 +58,31 @@ class UserStack(Base):
 # ==========================================
 # БЛОК 3: БИБЛИОТЕКА КОНТЕНТА (ТЕМЫ)
 # ==========================================
+# НОВАЯ ТАБЛИЦА: Разделы (дерево матрицы)
+class CompetencyBlock(Base):
+    __tablename__ = 'competency_blocks'
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    # Ссылка на саму себя для вложенности разделов (дерево)
+    parent_id = Column(Integer, ForeignKey('competency_blocks.id', ondelete='CASCADE'), nullable=True)
+
+    # Опционально: relationship для удобной работы в Python
+    parent = relationship("CompetencyBlock", remote_side=[id], backref="children")
+
+
+# ОБНОВЛЕННАЯ ТАБЛИЦА: Компетенции
 class Competency(Base):
     __tablename__ = 'competencies'
     id = Column(Integer, primary_key=True)
+    stack_id = Column(Integer, ForeignKey('stacks.id', ondelete='CASCADE'), nullable=True)
+
+    # НОВОЕ ПОЛЕ: Привязываем компетенцию к разделу
+    block_id = Column(Integer, ForeignKey('competency_blocks.id', ondelete='CASCADE'), nullable=True)
+
     name = Column(String, nullable=False)
     description = Column(Text)
     level = Column(Integer)
-    # Ссылка на саму себя (иерархия). Если удалить родителя, удалятся и подтемы
-    parent_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'), nullable=True)
-
-    # Это виртуальное поле, оно не создает колонку в БД, но позволяет
-    # в коде легко обращаться к дочерним элементам: competency.children
-    parent = relationship("Competency", remote_side=[id], backref="children")
+    # дерево строится через competency_blocks!
 
 
 class Material(Base):
@@ -117,8 +132,10 @@ class UserProgram(Base):
 
 
 class UserProgress(Base):
-    __tablename__ = 'user_progress'
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
-    competency_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'))
-    status = Column(String)
+    __tablename__ = "user_progress"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False)
+    competency_id = Column(Integer, nullable=False)
+    status = Column(String, default="Не начато")
+    started_at = Column(DateTime, default=datetime.utcnow)
