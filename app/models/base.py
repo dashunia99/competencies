@@ -110,6 +110,13 @@ class LearningProgram(Base):
     name = Column(String, nullable=False)
     description = Column(Text)
 
+class ProgramItem(Base):
+    __tablename__ = 'program_items'
+    id = Column(Integer, primary_key=True)
+    program_id = Column(Integer, ForeignKey('learning_programs.id', ondelete='CASCADE'), nullable=False)
+    competency_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'), nullable=False)
+    order_index = Column(Integer, default=0)
+
 
 class ProgramCompetency(Base):
     __tablename__ = 'program_competencies'
