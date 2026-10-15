@@ -40,6 +40,8 @@ class User(Base):
     password = Column(String, nullable=False)
     # Если грейд удалят, у юзера останется NULL, сам юзер не удалится
     grade_id = Column(Integer, ForeignKey('grades.id', ondelete='SET NULL'), nullable=True)
+    stack_id = Column(Integer, ForeignKey('stacks.id', ondelete='SET NULL'), nullable=True)
+    stack = relationship("Stack")
 
 
 class UserRole(Base):
@@ -47,12 +49,6 @@ class UserRole(Base):
     # Составной первичный ключ: обе колонки primary_key=True
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
     role_id = Column(Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True)
-
-
-class UserStack(Base):
-    __tablename__ = 'user_stacks'
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
-    stack_id = Column(Integer, ForeignKey('stacks.id', ondelete='CASCADE'), primary_key=True)
 
 
 # ==========================================

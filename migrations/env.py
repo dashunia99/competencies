@@ -18,6 +18,12 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
+
+# ДОБАВЛЕНО: чтобы Alembic мог найти папку 'app'
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
 from app.models.base import Base
 target_metadata = Base.metadata
 
