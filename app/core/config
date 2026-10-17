@@ -1,0 +1,16 @@
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    # Настройки S3 / MinIO
+    S3_ENDPOINT_URL: str = "http://localhost:9000"
+    AWS_ACCESS_KEY_ID: str = "minioadmin"
+    AWS_SECRET_ACCESS_KEY: str = "minioadmin"
+    S3_BUCKET_NAME: str = "webant-skills"
+    S3_PRESIGNED_TTL: int = 900
+
+    class Config:
+        env_file = ".env"  # Указываем, откуда читать переменные
+        case_sensitive = True
+
+# Создаем глобальный объект настроек
+settings = Settings()
