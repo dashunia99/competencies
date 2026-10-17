@@ -64,6 +64,7 @@ CREATE TABLE tasks (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     competency_id INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE
+    ALTER TABLE tasks ADD COLUMN max_attempts INTEGER DEFAULT 2;  -- ❌ ЭТО ВНУТРИ CREATE TABLE
 );
 
 -- ==========================================
@@ -101,4 +102,35 @@ CREATE TABLE user_progress (
     competency_id INTEGER NOT NULL REFERENCES competencies(id) ON DELETE CASCADE,
     status VARCHAR(255) DEFAULT 'Не начато',
     started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Таблица попыток отправки заданий
+CREATE TABLE IF NOT EXISTS submissions (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,
+    attempt_number INTEGER NOT NULL DEFAULT 1,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    file_key VARCHAR(512),
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_at TIMESTAMP,
+    reviewer_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- 3. Таблица метаданных файлов для S3
+CREATE TABLE IF NOT EXISTS files (
+    id SERIAL PRIMARY KEY,
+    object_key VARCHAR(512) NOT NULL UNIQUE,
+    bucket VARCHAR(255) NOT NULL,
+    original_name VARCHAR(512) NOT NULL,
+    mime_type VARCHAR(100),
+    size_bytes BIGINT,
+    uploaded_by INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id INTEGER,
+    status VARCHAR(50) DEFAULT 'uploaded',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMP
 );
