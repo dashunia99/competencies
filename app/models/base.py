@@ -166,3 +166,6 @@ class UserProgress(Base):
         status = Column(String(50), default='uploaded')  # uploaded, deleted
         created_at = Column(DateTime, default=datetime.utcnow)
         deleted_at = Column(DateTime, nullable=True)  # для мягкого удаления (soft delete)
+
+        checksum = Column(String(64))  # Для проверки целостности файла (MD5/SHA256)
+        version = Column(Integer, default=1)  # Версия файла (начинается с 1)

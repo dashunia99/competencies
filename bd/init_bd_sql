@@ -132,5 +132,7 @@ CREATE TABLE IF NOT EXISTS files (
     entity_id INTEGER,
     status VARCHAR(50) DEFAULT 'uploaded',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP
+    deleted_at TIMESTAMP,
+    checksum VARCHAR(64),       -- ДОБАВЛЕНО ПО ТЗ
+    version INTEGER DEFAULT 1   -- ДОБАВЛЕНО ПО ТЗ
 );
