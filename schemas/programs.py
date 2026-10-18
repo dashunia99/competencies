@@ -49,3 +49,22 @@ class ProgramShortSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+# ==========================================
+# СХЕМЫ ДЛЯ НАЗНАЧЕНИЯ ПРОГРАММЫ (COMP-26)
+# ==========================================
+
+class AssignProgramSchema(BaseModel):
+    """Тело запроса: ID пользователя, которому назначаем программу."""
+    user_id: int
+
+
+class ProgramAssignmentResponseSchema(BaseModel):
+    """Ответ сервера после успешного назначения."""
+    user_id: int
+    program_id: int
+    program_name: str
+    status: str
+
+    class Config:
+        from_attributes = True

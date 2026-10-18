@@ -43,7 +43,6 @@ class User(Base):
 
     grade = relationship("Grade")
     roles = relationship("Role", secondary="user_roles")
-    stacks = relationship("Stack", secondary="user_stacks")
 
 
 class UserRole(Base):

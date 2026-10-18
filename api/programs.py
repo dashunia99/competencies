@@ -1,7 +1,7 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from app.models.base import User, LearningProgram, ProgramItem, Competency, UserProgram
 from core.database import get_db
 from core.security import get_current_user, require_roles
 from app.models.base import User, LearningProgram, ProgramItem, Competency
@@ -10,6 +10,8 @@ from schemas.programs import (
     ProgramShortSchema,
     ProgramDetailSchema,
     SetProgramItemsSchema,
+    AssignProgramSchema,
+    ProgramAssignmentResponseSchema,
 )
 
 router = APIRouter(prefix="/programs", tags=["Программы обучения"])
@@ -158,3 +160,90 @@ def set_program_items(
 
     # Возвращаем обновленную карточку программы
     return get_program(program_id=program_id, db=db, current_user=expert_user)
+# ==========================================
+# НАЗНАЧЕНИЕ ПРОГРАММЫ (COMP-26)
+# ==========================================
+
+@router.post(
+    "/{program_id}/assign",
+    response_model=ProgramAssignmentResponseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Назначить программу сотруднику (Админ и Эксперт)",
+)
+def assign_program_to_user(
+    program_id: int,
+    payload: AssignProgramSchema,
+    db: Session = Depends(get_db),
+    # Доступ разрешен ТОЛЬКО Администратору и Эксперту:
+    current_user: User = Depends(require_roles("Администратор", "Эксперт")),
+):
+    # 1. Проверяем существование программы
+    program = db.query(LearningProgram).filter(LearningProgram.id == program_id).first()
+    if not program:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Программа обучения не найдена",
+        )
+
+    # 2. Проверяем существование пользователя
+    target_user = db.query(User).filter(User.id == payload.user_id).first()
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Пользователь не найден",
+        )
+
+    # 3. Проверяем, не назначена ли программа уже
+    existing_assignment = db.query(UserProgram).filter(
+        UserProgram.user_id == payload.user_id,
+        UserProgram.program_id == program_id,
+    ).first()
+
+    if existing_assignment:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Эта программа уже назначена данному сотруднику",
+        )
+
+    # 4. Создаем назначение в БД
+    new_assignment = UserProgram(
+        user_id=payload.user_id,
+        program_id=program_id,
+        status="Назначена",
+    )
+    db.add(new_assignment)
+    db.commit()
+
+    return {
+        "user_id": target_user.id,
+        "program_id": program.id,
+        "program_name": program.name,
+        "status": new_assignment.status,
+    }
+
+
+@router.delete(
+    "/{program_id}/assign/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Снять программу с сотрудника (Админ и Эксперт)",
+)
+def unassign_program_from_user(
+    program_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("Администратор", "Эксперт")),
+):
+    assignment = db.query(UserProgram).filter(
+        UserProgram.user_id == user_id,
+        UserProgram.program_id == program_id,
+    ).first()
+
+    if not assignment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Назначение не найдено",
+        )
+
+    db.delete(assignment)
+    db.commit()
+    return None
