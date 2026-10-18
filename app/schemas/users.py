@@ -1,11 +1,12 @@
 from typing import Optional
-
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 class CreateUserRequest(BaseModel):
+    fio: str = Field(min_length=2, max_length=255)  # <-- было username
     email: EmailStr
-    username: str = Field(min_length=4, max_length=32)
     password: str
+    grade_id: Optional[int] = None  # <-- добавлено
+    stack_id: Optional[int] = None
 
     @field_validator("password")
     @classmethod
@@ -14,29 +15,35 @@ class CreateUserRequest(BaseModel):
             raise ValueError("Password must be at least 8 characters")
         elif value in ("password", "pass1234"):
             raise ValueError("Password is too easy")
-        # elif value != cls.:
-        #     raise ValueError("Password can't be same as username")
         return value
 
 class UserResponse(BaseModel):
-    username: str
+    id: int  # <-- добавлено
+    fio: str  # <-- было username
     email: EmailStr
+    grade_id: Optional[int] = None  # <-- добавлено
+    stack_id: Optional[int] = None
+
+    class Config:
+        from_attributes = True  # <-- добавлено для работы с ORM
 
 class UpdateUserRequest(BaseModel):
-    email: Optional[EmailStr]
+    fio: Optional[str] = None  # <-- было username
+    email: Optional[EmailStr] = None
     password: Optional[str] = None
+    grade_id: Optional[int] = None  # <-- добавлено
+    stack_id: Optional[int] = None
 
     @field_validator("password")
     @classmethod
     def validate_password(cls, value):
-        if len(value) < 8:
-            raise ValueError("Password must be at least 8 characters")
-        elif value in ("password", "pass1234"):
-            raise ValueError("Password is too easy")
-        # elif value != cls.:
-        #     raise ValueError("Password can't be same as username")
+        if value is not None:  # <-- добавлено, чтобы не падал на None
+            if len(value) < 8:
+                raise ValueError("Password must be at least 8 characters")
+            elif value in ("password", "pass1234"):
+                raise ValueError("Password is too easy")
         return value
 
-    class UserLoginRequest(BaseModel):
-        email: EmailStr
-        password: str
+class UserLoginRequest(BaseModel):  # <-- вынесен на верхний уровень
+    email: EmailStr
+    password: str
