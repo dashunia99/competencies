@@ -146,36 +146,36 @@ class UserTaskProgress(Base):
     status = Column(String, default="Не начато")
     started_at = Column(DateTime, nullable=True)
 
-    class Submission(Base):
-        __tablename__ = 'submissions'
-        id = Column(Integer, primary_key=True)
-        user_id = Column(Integer, ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
-        task_id = Column(Integer, ForeignKey('tasks.id', ondelete='RESTRICT'), nullable=False)
-        attempt_number = Column(Integer, nullable=False, default=1)
-        status = Column(String(50), nullable=False, default='pending')  # pending, accepted, rejected
-        file_key = Column(String(512))  # ссылка на файл в S3
-        comment = Column(Text)  # комментарий пользователя или проверяющего
-        created_at = Column(DateTime, default=datetime.utcnow)
-        updated_at = Column(DateTime, default=datetime.utcnow,
-                            onupdate=datetime.utcnow)  # для отслеживания редактирования
-        reviewed_at = Column(DateTime, nullable=True)
-        reviewer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
-    class File(Base):
-        __tablename__ = 'files'
-        id = Column(Integer, primary_key=True)
-        object_key = Column(String(512), unique=True, nullable=False)  # уникальный ключ в S3
-        bucket = Column(String(255), nullable=False)
-        original_name = Column(String(512), nullable=False)
-        mime_type = Column(String(100), nullable=True)
-        size_bytes = Column(BigInteger, nullable=True)
-        uploaded_by = Column(Integer, ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
-        entity_type = Column(String(50), nullable=False)  # например: 'submission', 'material', 'hr_matrix'
-        entity_id = Column(Integer, nullable=True)  # id связанной записи (submission.id или material.id)
-        status = Column(String(50), default='uploaded')  # uploaded, deleted
-        created_at = Column(DateTime, default=datetime.utcnow)
-        deleted_at = Column(DateTime, nullable=True)  # для мягкого удаления (soft delete)
+# Выровнено по левому краю (без отступа!):
+class Submission(Base):
+    __tablename__ = 'submissions'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    task_id = Column(Integer, ForeignKey('tasks.id', ondelete='RESTRICT'), nullable=False)
+    attempt_number = Column(Integer, nullable=False, default=1)
+    status = Column(String(50), nullable=False, default='pending')
+    file_key = Column(String(512))
+    comment = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    reviewed_at = Column(DateTime, nullable=True)
+    reviewer_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
 
-        checksum = Column(String(64))  # Для проверки целостности файла (MD5/SHA256)
-        version = Column(Integer, default=1)  # Версия файла (начинается с 1)
 
+class File(Base):
+    __tablename__ = 'files'
+    id = Column(Integer, primary_key=True)
+    object_key = Column(String(512), unique=True, nullable=False)
+    bucket = Column(String(255), nullable=False)
+    original_name = Column(String(512), nullable=False)
+    mime_type = Column(String(100), nullable=True)
+    size_bytes = Column(BigInteger, nullable=True)
+    uploaded_by = Column(Integer, ForeignKey('users.id', ondelete='RESTRICT'), nullable=False)
+    entity_type = Column(String(50), nullable=False)
+    entity_id = Column(Integer, nullable=True)
+    status = Column(String(50), default='uploaded')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)
+    checksum = Column(String(64))
+    version = Column(Integer, default=1)

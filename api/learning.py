@@ -120,47 +120,6 @@ def get_user_programs(
     return result
 
 
-# 4. GET /api/v1/programs/{id} — получение тем программы, связанных материалов и заданий
-@router.get(
-    "/programs/{program_id}",
-    response_model=ProgramDetailSchema,
-    summary="Получение тем программы, связанных материалов и заданий",
-)
-def get_program_details(
-    program_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    program = db.query(LearningProgram).filter(LearningProgram.id == program_id).first()
-    if not program:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Программа не найдена")
-
-    # Ищем привязанные темы (компетенции) к программе
-    prog_comps = db.query(ProgramCompetency).filter(ProgramCompetency.program_id == program_id).all()
-    comp_ids = [pc.competency_id for pc in prog_comps]
-
-    competencies = db.query(Competency).filter(Competency.id.in_(comp_ids)).all()
-
-    topics_res = []
-    for comp in competencies:
-        materials = db.query(Material).filter(Material.competency_id == comp.id).all()
-        tasks = db.query(Task).filter(Task.competency_id == comp.id).all()
-        topics_res.append({
-            "id": comp.id,
-            "name": comp.name,
-            "description": comp.description,
-            "materials": materials,
-            "tasks": tasks,
-        })
-
-    return {
-        "id": program.id,
-        "name": program.name,
-        "description": program.description,
-        "topics": topics_res,
-    }
-
-
 # 5. GET /api/v1/materials/{id} — получение материала
 @router.get(
     "/materials/{material_id}",
