@@ -1,11 +1,7 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, BigInteger, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, Boolean, DateTime, BigInteger, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
-
-# Создаем базовый класс, от которого наследуются все таблицы.
-# Именно его потом будет читать Alembic (Base.metadata)
 Base = declarative_base()
-
 
 # ==========================================
 # БЛОК 1: СПРАВОЧНИКИ
@@ -26,7 +22,7 @@ class Stack(Base):
     __tablename__ = 'stacks'
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, nullable=False)  # <-- добавляем unique=True
+    name = Column(String, unique=True, nullable=False)
 
 
 # ==========================================
@@ -34,19 +30,24 @@ class Stack(Base):
 # ==========================================
 class User(Base):
     __tablename__ = 'users'
+
     id = Column(Integer, primary_key=True)
-    fio = Column(String)
+    fio = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False)
-    # Если грейд удалят, у юзера останется NULL, сам юзер не удалится
+    password = Column(String, nullable=False)  # Здесь хранится bcrypt-хеш
+    is_active = Column(Boolean, default=True)
+
     grade_id = Column(Integer, ForeignKey('grades.id', ondelete='SET NULL'), nullable=True)
     stack_id = Column(Integer, ForeignKey('stacks.id', ondelete='SET NULL'), nullable=True)
     stack = relationship("Stack")
 
+    grade = relationship("Grade")
+    roles = relationship("Role", secondary="user_roles")
+    stacks = relationship("Stack", secondary="user_stacks")
+
 
 class UserRole(Base):
     __tablename__ = 'user_roles'
-    # Составной первичный ключ: обе колонки primary_key=True
     user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
     role_id = Column(Integer, ForeignKey('roles.id', ondelete='CASCADE'), primary_key=True)
 
@@ -79,7 +80,6 @@ class Competency(Base):
     description = Column(Text)
     level = Column(Integer)
     # дерево строится через competency_blocks!
-
 
 class Material(Base):
     __tablename__ = 'materials'
@@ -129,13 +129,22 @@ class UserProgram(Base):
 
 
 class UserProgress(Base):
-    __tablename__ = "user_progress"
+    __tablename__ = 'user_progress'
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, nullable=False)
-    competency_id = Column(Integer, nullable=False)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    competency_id = Column(Integer, ForeignKey('competencies.id', ondelete='CASCADE'), nullable=False)
     status = Column(String, default="Не начато")
     started_at = Column(DateTime, default=datetime.utcnow)
+
+class UserTaskProgress(Base):
+    __tablename__ = 'user_task_progress'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    task_id = Column(Integer, ForeignKey('tasks.id', ondelete='CASCADE'), nullable=False)
+    status = Column(String, default="Не начато")
+    started_at = Column(DateTime, nullable=True)
 
     class Submission(Base):
         __tablename__ = 'submissions'
@@ -169,3 +178,4 @@ class UserProgress(Base):
 
         checksum = Column(String(64))  # Для проверки целостности файла (MD5/SHA256)
         version = Column(Integer, default=1)  # Версия файла (начинается с 1)
+
