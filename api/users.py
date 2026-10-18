@@ -3,16 +3,30 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from core.security import hash_password, get_current_user
+from core.security import (
+    hash_password,
+    get_current_user,
+    require_roles,
+    verify_user_access,
+)
 from app.models.base import User, Role, UserRole
 from schemas.users import CreateUserSchema, UserSchema
 
 router = APIRouter(prefix="/users", tags=["Пользователи"])
 
 
-# 1. Создание пользователя
-@router.post("/", response_model=UserSchema, status_code=status.HTTP_201_CREATED, summary="Создать пользователя")
-def create_user(user_data: CreateUserSchema, db: Session = Depends(get_db)):
+# 1. Создание пользователя — ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА
+@router.post(
+    "/",
+    response_model=UserSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Создать пользователя (только Администратор)",
+)
+def create_user(
+    user_data: CreateUserSchema,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_roles("Администратор")),
+):
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
@@ -56,9 +70,16 @@ def create_user(user_data: CreateUserSchema, db: Session = Depends(get_db)):
     }
 
 
-# 2. Получить список ВСЕХ пользователей (для Админа)
-@router.get("/", response_model=List[UserSchema], summary="Список всех пользователей (для Админа)")
-def get_all_users(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+# 2. Список ВСЕХ пользователей — ТОЛЬКО ДЛЯ АДМИНА И ЭКСПЕРТА
+@router.get(
+    "/",
+    response_model=List[UserSchema],
+    summary="Список всех пользователей (Администратор и Эксперт)",
+)
+def get_all_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("Администратор", "Эксперт")),
+):
     users = db.query(User).all()
     result = []
     for u in users:
@@ -77,9 +98,20 @@ def get_all_users(db: Session = Depends(get_db), current_user: User = Depends(ge
     return result
 
 
-# 3. Карточка конкретного пользователя по ID
-@router.get("/{user_id}", response_model=UserSchema, summary="Карточка пользователя по ID")
-def get_user_by_id(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+# 3. Карточка пользователя по ID — Админ, Эксперт или САМ пользователь
+@router.get(
+    "/{user_id}",
+    response_model=UserSchema,
+    summary="Карточка пользователя по ID (своя или для Админа/Эксперта)",
+)
+def get_user_by_id(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Проверка: сотрудник не может смотреть чужую карточку!
+    verify_user_access(target_user_id=user_id, current_user=current_user)
+
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
@@ -99,9 +131,17 @@ def get_user_by_id(user_id: int, db: Session = Depends(get_db), current_user: Us
     }
 
 
-# 4. Заблокировать пользователя (is_active = False)
-@router.post("/{user_id}/block", response_model=UserSchema, summary="Заблокировать пользователя")
-def block_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+# 4. Заблокировать пользователя — ТОЛЬКО АДМИНИСТРАТОР
+@router.post(
+    "/{user_id}/block",
+    response_model=UserSchema,
+    summary="Заблокировать пользователя (только Администратор)",
+)
+def block_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_roles("Администратор")),
+):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")

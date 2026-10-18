@@ -57,13 +57,7 @@ def get_current_user(
     db: Session = Depends(get_db)
 ) -> User:
     token = credentials.credentials
-    """
-    Зависимость для защиты эндпоинтов:
-    - Извлекает токен из заголовка Authorization: Bearer <token>.
-    - Расшифровывает и валидирует JWT.
-    - Проверяет тип токена (только access!).
-    - Находит пользователя в БД и проверяет, что он не заблокирован.
-    """
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Не удалось подтвердить учетные данные",
@@ -95,3 +89,41 @@ def get_current_user(
         )
 
     return user
+
+
+# ==========================================
+# ПРОВЕРКА РОЛЕЙ И ПРАВ ДОСТУПА (COMP-16)
+# ==========================================
+
+def require_roles(*allowed_roles: str):
+
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        user_roles = [r.name for r in current_user.roles]
+
+        # Проверяем, есть ли у пользователя хотя бы одна нужная роль
+        has_permission = any(role in allowed_roles for role in user_roles)
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Недостаточно прав для выполнения данной операции",
+            )
+        return current_user
+
+    return role_checker
+
+
+def verify_user_access(target_user_id: int, current_user: User) -> None:
+    """
+    Проверяет, имеет ли текущий пользователь право смотреть данные по target_user_id:
+    - Администратор и Эксперт могут смотреть любого пользователя.
+    - Сотрудник может смотреть ТОЛЬКО свои данные (current_user.id == target_user_id).
+    - При попытке залезть в чужие данные отдается 403 Forbidden.
+    """
+    user_roles = [r.name for r in current_user.roles]
+    is_privileged = any(r in ["Администратор", "Эксперт"] for r in user_roles)
+
+    if not is_privileged and current_user.id != target_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ к данным других сотрудников запрещен",
+        )

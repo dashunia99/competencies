@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
+from core.security import get_current_user, verify_user_access, require_roles
 from core.database import get_db
 from core.security import get_current_user
 from app.models.base import (
@@ -101,16 +101,12 @@ def get_user_programs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # 🔒 ЗАЩИТА ОТ IDOR (только что придуманная Машей!):
-    # Сотрудник может смотреть ТОЛЬКО свои программы!
-    current_role = current_user.roles[0].name if current_user.roles else None
-    if current_role == "Сотрудник" and current_user.id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Доступ запрещен: вы не можете просматривать программы других сотрудников!",
-        )
+    # 🔒 Защита COMP-16 / IDOR: проверяем, что сотрудник не лезет к чужим данным
+    verify_user_access(target_user_id=user_id, current_user=current_user)
 
+    # Делаем запрос к базе данных ОДИН раз
     user_programs = db.query(UserProgram).filter(UserProgram.user_id == user_id).all()
+
     result = []
     for up in user_programs:
         program = db.query(LearningProgram).filter(LearningProgram.id == up.program_id).first()
@@ -223,7 +219,7 @@ def get_assignment(
 def start_assignment(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles("Сотрудник")),
 ):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
