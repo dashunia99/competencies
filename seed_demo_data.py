@@ -1,17 +1,22 @@
+from sqlalchemy import text
 from app.models.base import (
-    Base, User, Role, UserRole, Grade, Stack, UserStack,
-    LearningProgram, ProgramCompetency, Competency, Material, Task, UserProgram
+    Base, User, Role, UserRole, Grade, Stack,
+    LearningProgram, ProgramItem, ProgramCompetency, Competency, Material, Task, UserProgram
 )
 from core.database import engine, SessionLocal
 from core.security import hash_password
 
-print("1. Очищаем старые таблицы...")
-Base.metadata.drop_all(bind=engine)
+print("1. Очищаем старые таблицы каскадно и создаем схему заново...")
+with engine.begin() as conn:
+    # Удаляем всю схему public со всеми зависимостями (CASCADE) и пересоздаем ее
+    conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
+
+# Создаем все актуальные таблицы из base.py
 Base.metadata.create_all(bind=engine)
 
 db = SessionLocal()
 
-print("2. Создаем справочники...")
+print("2. Создаем справочники ролей, грейдов и стеков...")
 role_admin = Role(name="Администратор")
 role_expert = Role(name="Эксперт")
 role_employee = Role(name="Сотрудник")
@@ -39,9 +44,10 @@ competency = Competency(
 db.add(competency)
 db.commit()
 
-# Связываем программу с темой
+# Добавляем привязку программы к теме (и в program_items для COMP-25, и в program_competencies)
+prog_item = ProgramItem(program_id=program.id, competency_id=competency.id, order_index=1)
 prog_comp = ProgramCompetency(program_id=program.id, competency_id=competency.id)
-# Добавляем материал и задание к этой теме
+
 material = Material(
     name="Руководство по авторизации в FastAPI",
     link="https://habr.com/ru/articles/1051800/",
@@ -50,9 +56,10 @@ material = Material(
 task = Task(
     name="Реализовать вход по JWT и проверку ролей",
     description="Написать хэндлеры login и me, протестировать роли",
-    competency_id=competency.id
+    competency_id=competency.id,
+    max_attempts=2
 )
-db.add_all([prog_comp, material, task])
+db.add_all([prog_item, prog_comp, material, task])
 db.commit()
 
 print("4. Создаем 3 демо-пользователей...")
@@ -78,22 +85,22 @@ db.add(expert)
 db.commit()
 db.add(UserRole(user_id=expert.id, role_id=role_expert.id))
 
-# 3. Сотрудник (привязываем стек, грейд и программу!)
+# 3. Сотрудник (привязываем прямой stack_id и grade_id)
 employee = User(
     fio="Иван Сотрудников",
     email="employee@webant.ru",
     password=hash_password("employee123password"),
     grade_id=grade_junior.id,
+    stack_id=stack_python.id,  # <-- прямое поле по новой миграции Даши!
     is_active=True
 )
 db.add(employee)
 db.commit()
 db.add_all([
     UserRole(user_id=employee.id, role_id=role_employee.id),
-    UserStack(user_id=employee.id, stack_id=stack_python.id),
-    UserProgram(user_id=employee.id, program_id=program.id, status="В процессе")
+    UserProgram(user_id=employee.id, program_id=program.id, status="Назначена")
 ])
 db.commit()
 db.close()
 
-print("🎉 УСПЕХ! База наполнена идеальными демо-данными для показа!")
+print("🎉 УСПЕХ! База идеально пересоздана и наполнена!")
