@@ -1,11 +1,11 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Строка подключения к PostgreSQL (замени ТВОЙ_ПАРОЛЬ на реальный пароль от базы)
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:223112@localhost:5432/webant_skills"
+from app.core.config import settings
+
 
 # Создаем движок базы данных
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+engine = create_engine(settings.database_url)
 
 # Фабрика сессий
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
