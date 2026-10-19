@@ -1,3 +1,5 @@
+import sys
+
 from sqlalchemy import text
 from app.models.base import (
     Base, User, Role, UserRole, Grade, Stack,
@@ -5,6 +7,19 @@ from app.models.base import (
 )
 from core.database import engine, SessionLocal
 from core.security import hash_password
+
+database_name = engine.url.database
+if not database_name:
+    raise SystemExit("Отказ от сброса: не удалось определить имя базы данных.")
+if not sys.stdin.isatty():
+    raise SystemExit(
+        "Отказ от сброса: скрипт можно запускать только из интерактивного терминала."
+    )
+
+print(f"ВНИМАНИЕ: будет полностью удалена схема public базы данных '{database_name}'.")
+confirmation = input(f"Для продолжения введите имя базы данных '{database_name}': ")
+if confirmation != database_name:
+    raise SystemExit("Подтверждение не совпало. Сброс базы данных отменен.")
 
 print("1. Очищаем старые таблицы каскадно и создаем схему заново...")
 with engine.begin() as conn:
