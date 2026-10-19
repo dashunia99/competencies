@@ -2,45 +2,61 @@ from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from core.security import get_current_user, verify_user_access, require_roles
+
 from core.database import get_db
-from core.security import get_current_user
+from core.security import get_current_user, verify_user_access
 from app.models.base import (
     User,
     LearningProgram,
     UserProgram,
-    ProgramCompetency,
+    ProgramItem,
     Competency,
     Material,
     Task,
     UserTaskProgress,
 )
 from schemas.learning import (
-    ProgramSchema,
-    ProgramDetailSchema,
-    MaterialSchema,
+    CabinetOverviewSchema,
     AssignmentStatusSchema,
+    MaterialSchema,
 )
 
-router = APIRouter(prefix="", tags=["Обучение и программы"])
+router = APIRouter(prefix="", tags=["Личный кабинет и задания (COMP-27)"])
 
 
-#  Личный кабинет сотрудника
+# 1. ЛИЧНЫЙ КАБИНЕТ СОТРУДНИКА (Требование 4: не падает, если программ нет!)
 @router.get(
     "/users/me/overview",
-    summary="[Сотрудник] Мой личный кабинет: стек, программы, темы и материалы",
+    response_model=CabinetOverviewSchema,
+    summary="Личный кабинет сотрудника (все программы, темы, задания)",
 )
 def get_my_overview(
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    # 1. Достаем стек и грейд сотрудника
-    stack_name = current_user.stacks[0].name if current_user.stacks else None
-    grade_name = current_user.grade.name if current_user.grade else None
+    # Данные пользователя (безопасно через None, если грейд или стек не назначены)
     role_name = current_user.roles[0].name if current_user.roles else None
+    stack_name = current_user.stack.name if current_user.stack else None
+    grade_name = current_user.grade.name if current_user.grade else None
 
-    # 2. Находим назначенные программы сотрудника
+    user_info = {
+        "id": current_user.id,
+        "fio": current_user.fio,
+        "email": current_user.email,
+        "role": role_name,
+        "stack": stack_name,
+        "grade": grade_name,
+    }
+
+    # 1. Ищем назначенные программы сотрудника
     user_programs = db.query(UserProgram).filter(UserProgram.user_id == current_user.id).all()
+
+    # Если программ нет — сразу возвращаем пустой список, сервер НЕ падает!
+    if not user_programs:
+        return {
+            "user_info": user_info,
+            "assigned_programs": [],
+        }
 
     programs_data = []
     for up in user_programs:
@@ -48,10 +64,21 @@ def get_my_overview(
         if not program:
             continue
 
-        # Подтягиваем темы программы
-        prog_comps = db.query(ProgramCompetency).filter(ProgramCompetency.program_id == program.id).all()
-        comp_ids = [pc.competency_id for pc in prog_comps]
-        competencies = db.query(Competency).filter(Competency.id.in_(comp_ids)).all()
+        # Подтягиваем темы программы через ProgramItem (COMP-21 Даши!) с сохранением порядка
+        prog_items = (
+            db.query(ProgramItem)
+            .filter(ProgramItem.program_id == program.id)
+            .order_by(ProgramItem.order_index)
+            .all()
+        )
+        comp_ids = [pi.competency_id for pi in prog_items]
+
+        competencies = []
+        if comp_ids:
+            competencies = db.query(Competency).filter(Competency.id.in_(comp_ids)).all()
+            # Сортируем темы в порядке order_index из program_items
+            comp_map = {c.id: c for c in competencies}
+            competencies = [comp_map[cid] for cid in comp_ids if cid in comp_map]
 
         topics_list = []
         for comp in competencies:
@@ -63,85 +90,62 @@ def get_my_overview(
                 "name": comp.name,
                 "description": comp.description,
                 "materials": [
-                    {"id": m.id, "name": m.name, "link": m.link} for m in materials
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "link": m.link,
+                        "competency_id": m.competency_id,
+                    }
+                    for m in materials
                 ],
                 "tasks": [
-                    {"id": t.id, "name": t.name, "description": t.description} for t in tasks
-                ]
+                    {
+                        "id": t.id,
+                        "name": t.name,
+                        "description": t.description,
+                        "competency_id": t.competency_id,
+                        "max_attempts": getattr(t, "max_attempts", 2) or 2,
+                    }
+                    for t in tasks
+                ],
             })
 
         programs_data.append({
             "id": program.id,
             "name": program.name,
             "description": program.description,
-            "status": up.status,
-            "topics": topics_list
+            "status": up.status or "Назначена",
+            "topics": topics_list,
         })
 
-    # Возвращаем сотруднику всю его учебную вселенную в одном ответе:
     return {
-        "user_info": {
-            "id": current_user.id,
-            "fio": current_user.fio,
-            "email": current_user.email,
-            "role": role_name,
-            "stack": stack_name,
-            "grade": grade_name
-        },
-        "assigned_programs": programs_data
+        "user_info": user_info,
+        "assigned_programs": programs_data,
     }
-# 3. GET /api/v1/users/{user_id}/programs — получение назначенных программ
-@router.get(
-    "/users/{user_id}/programs",
-    response_model=List[ProgramSchema],
-    summary="Получение назначенных программ сотрудника",
-)
-def get_user_programs(
-    user_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    # 🔒 Защита COMP-16 / IDOR: проверяем, что сотрудник не лезет к чужим данным
-    verify_user_access(target_user_id=user_id, current_user=current_user)
-
-    # Делаем запрос к базе данных ОДИН раз
-    user_programs = db.query(UserProgram).filter(UserProgram.user_id == user_id).all()
-
-    result = []
-    for up in user_programs:
-        program = db.query(LearningProgram).filter(LearningProgram.id == up.program_id).first()
-        if program:
-            result.append({
-                "id": program.id,
-                "name": program.name,
-                "description": program.description,
-                "status": up.status,
-            })
-    return result
 
 
-# 5. GET /api/v1/materials/{id} — получение материала
+# 2. ПОЛУЧЕНИЕ КАРТОЧКИ МАТЕРИАЛА
 @router.get(
     "/materials/{material_id}",
     response_model=MaterialSchema,
-    summary="Получение материала",
+    summary="Карточка учебного материала",
 )
 def get_material(
     material_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    material = db.query(Material).filter(Material.id == material_id).first()
-    if not material:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Материал не найден")
-    return material
+    mat = db.query(Material).filter(Material.id == material_id).first()
+    if not mat:
+        raise HTTPException(status_code=404, detail="Материал не найден")
+    return mat
 
 
-# 6. GET /api/v1/assignments/{id} — получение задания и его текущего статуса
+# 3. ПОЛУЧЕНИЕ ЗАДАНИЯ И ЕГО ТЕКУЩЕГО СТАТУСА
 @router.get(
     "/assignments/{task_id}",
     response_model=AssignmentStatusSchema,
-    summary="Получение задания и его текущего статуса",
+    summary="Карточка задания и его текущий статус",
 )
 def get_assignment(
     task_id: int,
@@ -150,7 +154,7 @@ def get_assignment(
 ):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+        raise HTTPException(status_code=404, detail="Задание не найдено")
 
     progress = db.query(UserTaskProgress).filter(
         UserTaskProgress.user_id == current_user.id,
@@ -166,23 +170,24 @@ def get_assignment(
         "description": task.description,
         "status": current_status,
         "started_at": started_at,
+        "max_attempts": getattr(task, "max_attempts", 2) or 2,
     }
 
 
-# 7. POST /api/v1/assignments/{id}/start — нажать «Приступить» (статус «В работе» и фиксация времени)
+# 4. НАЖАТЬ «ПРИСТУПИТЬ» К ЗАДАНИЮ (Фиксация статуса «В работе» и времени старта)
 @router.post(
     "/assignments/{task_id}/start",
     response_model=AssignmentStatusSchema,
-    summary="Приступить к выполнению задания",
+    summary="Нажать «Приступить» (статус «В работе» и время старта)",
 )
 def start_assignment(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("Сотрудник")),
+    current_user: User = Depends(get_current_user),
 ):
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Задание не найдено")
+        raise HTTPException(status_code=404, detail="Задание не найдено")
 
     progress = db.query(UserTaskProgress).filter(
         UserTaskProgress.user_id == current_user.id,
@@ -192,6 +197,7 @@ def start_assignment(
     now = datetime.now(timezone.utc)
 
     if not progress:
+        # Впервые берем в работу: сохраняем статус и текущее время
         progress = UserTaskProgress(
             user_id=current_user.id,
             task_id=task_id,
@@ -200,6 +206,7 @@ def start_assignment(
         )
         db.add(progress)
     else:
+        # Если статус уже был, меняем на "В работе", но НЕ перезаписываем первоначальное время начала!
         progress.status = "В работе"
         if not progress.started_at:
             progress.started_at = now
@@ -213,26 +220,5 @@ def start_assignment(
         "description": task.description,
         "status": progress.status,
         "started_at": progress.started_at,
+        "max_attempts": getattr(task, "max_attempts", 2) or 2,
     }
-# 8. GET /api/v1/directions — Список всех стеков/направлений
-@router.get("/directions", summary="Список направлений и стеков")
-def get_directions(db: Session = Depends(get_db)):
-    from app.models.base import Stack
-    stacks = db.query(Stack).all()
-    return [{"id": s.id, "name": s.name} for s in stacks]
-
-
-# 9. GET /api/v1/directions/{stack_id}/competency-matrix — Матрица компетенций стека
-@router.get("/directions/{stack_id}/competency-matrix", summary="Матрица компетенций стека")
-def get_competency_matrix(stack_id: int, db: Session = Depends(get_db)):
-    competencies = db.query(Competency).filter(Competency.stack_id == stack_id).all()
-    return [
-        {
-            "id": c.id,
-            "name": c.name,
-            "description": c.description,
-            "level": c.level,
-            "parent_id": c.parent_id
-        }
-        for c in competencies
-    ]
