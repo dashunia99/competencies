@@ -24,7 +24,10 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
+from app.core.config import settings
 from app.models.base import Base
+
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,

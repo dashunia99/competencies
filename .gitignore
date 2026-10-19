@@ -1,13 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# Virtual environments
 .venv/
 venv/
 
-__pycache__/
-*.pyc
-
-.idea/
-
+# Local environment and secrets
 .env
+.env.*
+!.env.example
 
+# IDE and OS files
+.idea/
+.DS_Store
+Thumbs.db
 
-__pycache__/
-*.pyc
+# Generated output
+*.log
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/

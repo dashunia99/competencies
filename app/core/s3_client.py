@@ -1,6 +1,6 @@
 import boto3
 from botocore.exceptions import ClientError
-from app.core.config import settings  # Убедись, что путь к settings верный
+from app.core.config import settings
 
 class S3Service:
     def __init__(self):
@@ -8,7 +8,7 @@ class S3Service:
             's3',
             endpoint_url=settings.S3_ENDPOINT_URL,
             aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY.get_secret_value()
         )
         self.bucket = settings.S3_BUCKET_NAME
 
