@@ -34,8 +34,8 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     fio = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False)  # Здесь хранится bcrypt-хеш
-    is_active = Column(Boolean, default=True)
+    password_hash = Column(String, nullable=False)  # Здесь хранится bcrypt-хеш
+    is_active = Column(Boolean, default=False)
 
     grade_id = Column(Integer, ForeignKey('grades.id', ondelete='SET NULL'), nullable=True)
     stack_id = Column(Integer, ForeignKey('stacks.id', ondelete='SET NULL'), nullable=True)
