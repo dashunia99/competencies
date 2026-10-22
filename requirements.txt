@@ -1,15 +1,29 @@
-fastapi
-uvicorn
-sqlalchemy
-alembic
-pydantic
-pydantic-settings
-psycopg2-binary
-email-validator
-passlib
-bcrypt
-PyJWT
-psycopg[binary]
-boto3
-pandas
-openpyxl
+# Runtime: Python 3.11+
+
+# API server
+fastapi==0.161.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+
+# Configuration and validation
+pydantic==2.14.1
+pydantic-settings==2.16.1
+email-validator==2.3.0
+
+# Database and migrations
+SQLAlchemy==2.1.6
+alembic==1.20.1
+psycopg[binary]==3.3.6
+
+# Authentication
+PyJWT==2.15.1
+passlib[bcrypt]==1.7.4
+# Passlib 1.7.4 is incompatible with newer bcrypt releases.
+bcrypt==4.0.1
+
+# S3-compatible object storage
+boto3==1.43.117
+
+# Competency matrix import
+pandas==3.1.0
+openpyxl==3.1.5
