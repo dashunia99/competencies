@@ -1,70 +1,58 @@
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, root_validator
 
 
-# Схема создания/редактирования программы
 class ProgramCreateSchema(BaseModel):
     name: str
     description: Optional[str] = None
 
 
-# Схема одного элемента (для добавления в программу)
+class ProgramUpdateSchema(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
 class ProgramItemInputSchema(BaseModel):
-    competency_id: int
-    order_index: int = 0
+    material_id: Optional[int] = None
+    task_id: Optional[int] = None
+    position: int = 0
+
+    @root_validator(pre=True)
+    def check_only_one_target(cls, values):
+        mat = values.get("material_id")
+        task = values.get("task_id")
+        if (mat is None and task is None) or (mat is not None and task is not None):
+            raise ValueError("В элементе программы должно быть заполнено ровно одно поле: material_id или task_id")
+        return values
 
 
-# Схема для PUT /programs/{id}/items (замена состава)
 class SetProgramItemsSchema(BaseModel):
     items: List[ProgramItemInputSchema]
 
 
-# Элемент программы в ответе
 class ProgramItemResponseSchema(BaseModel):
     id: int
-    competency_id: int
-    competency_name: str
-    order_index: int
-
-    class Config:
-        from_attributes = True
+    type: str  # "material" или "task"
+    item_id: int
+    name: str
+    position: int
 
 
-# Детальная карточка программы со списком тем/компетенций
 class ProgramDetailSchema(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
+    creator_id: Optional[int] = None
     items: List[ProgramItemResponseSchema] = []
 
     class Config:
         from_attributes = True
 
 
-# Краткая карточка программы для списка
 class ProgramShortSchema(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-# ==========================================
-# СХЕМЫ ДЛЯ НАЗНАЧЕНИЯ ПРОГРАММЫ (COMP-26)
-# ==========================================
-
-class AssignProgramSchema(BaseModel):
-    """Тело запроса: ID пользователя, которому назначаем программу."""
-    user_id: int
-
-
-class ProgramAssignmentResponseSchema(BaseModel):
-    """Ответ сервера после успешного назначения."""
-    user_id: int
-    program_id: int
-    program_name: str
-    status: str
 
     class Config:
         from_attributes = True

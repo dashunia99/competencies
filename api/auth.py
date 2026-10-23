@@ -41,20 +41,18 @@ def login(login_data: LoginSchema, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/me", response_model=UserMeSchema, summary="Текущий пользователь: id, имя, роль, стек, грейд")
+@router.get("/me", response_model=UserMeSchema, summary="Текущий пользователь: id, имя, роль, стек, грейд, должность, дата")
 def get_me(current_user: User = Depends(get_current_user)):
-    """
-    Возвращает профиль сотрудника в точности по ТЗ техлида:
-    id, имя (fio), роль, стек, грейд.
-    """
     role_name = current_user.roles[0].name if current_user.roles else None
-    stack_name = current_user.stacks[0].name if current_user.stacks else None
+    stack_name = current_user.stack.name if current_user.stack else None
     grade_name = current_user.grade.name if current_user.grade else None
 
     return {
         "id": current_user.id,
         "fio": current_user.fio,
         "email": current_user.email,
+        "position": current_user.position,
+        "start_date": current_user.start_date,
         "role": role_name,
         "stack": stack_name,
         "grade": grade_name,

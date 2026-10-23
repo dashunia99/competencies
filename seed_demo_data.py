@@ -1,121 +1,84 @@
-import sys
-
-from sqlalchemy import text
+from datetime import date
 from app.models.base import (
     Base, User, Role, UserRole, Grade, Stack,
-    LearningProgram, ProgramItem, ProgramCompetency, Competency, Material, Task, UserProgram
+    LearningProgram, CompetencyBlock, Competency, Material, Task
 )
 from core.database import engine, SessionLocal
 from core.security import hash_password
 
-database_name = engine.url.database
-if not database_name:
-    raise SystemExit("Отказ от сброса: не удалось определить имя базы данных.")
-if not sys.stdin.isatty():
-    raise SystemExit(
-        "Отказ от сброса: скрипт можно запускать только из интерактивного терминала."
-    )
-
-print(f"ВНИМАНИЕ: будет полностью удалена схема public базы данных '{database_name}'.")
-confirmation = input(f"Для продолжения введите имя базы данных '{database_name}': ")
-if confirmation != database_name:
-    raise SystemExit("Подтверждение не совпало. Сброс базы данных отменен.")
-
-print("1. Очищаем старые таблицы каскадно и создаем схему заново...")
-with engine.begin() as conn:
-    # Удаляем всю схему public со всеми зависимостями (CASCADE) и пересоздаем ее
-    conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public;"))
-
-# Создаем все актуальные таблицы из base.py
+print("1. Пересоздаем таблицы со всеми новыми полями...")
+Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
 
 db = SessionLocal()
 
-print("2. Создаем справочники ролей, грейдов и стеков...")
+print("2. Создаем роли, грейды и направления...")
 role_admin = Role(name="Администратор")
 role_expert = Role(name="Эксперт")
 role_employee = Role(name="Сотрудник")
-db.add_all([role_admin, role_expert, role_employee])
-
 grade_junior = Grade(name="Junior")
+grade_middle = Grade(name="Middle")
 stack_python = Stack(name="Python-backend")
-db.add_all([grade_junior, stack_python])
+db.add_all([role_admin, role_expert, role_employee, grade_junior, grade_middle, stack_python])
 db.commit()
 
-print("3. Создаем программу обучения, темы, материалы и задания...")
-program = LearningProgram(
-    name="Онбординг Python разработчика",
-    description="Базовая программа входа сотрудника в команду"
-)
-db.add(program)
+print("3. Создаем дерево компетенций, материалы и задания...")
+theme = CompetencyBlock(name="Архитектура кода", parent_id=None)
+db.add(theme)
 db.commit()
 
-competency = Competency(
-    name="FastAPI и базы данных PostgreSQL",
-    description="Умение создавать роутеры и работать с моделями ORM",
+section = CompetencyBlock(name="SOLID и ООП", parent_id=theme.id)
+db.add(section)
+db.commit()
+
+comp = Competency(
+    name="Применяет принципы SOLID и разделяет слои в FastAPI",
+    description="Уровень Junior",
     stack_id=stack_python.id,
-    level=1
+    block_id=section.id,
+    level=1,
 )
-db.add(competency)
+db.add(comp)
 db.commit()
-
-# Добавляем привязку программы к теме (и в program_items для COMP-25, и в program_competencies)
-prog_item = ProgramItem(program_id=program.id, competency_id=competency.id, order_index=1)
-prog_comp = ProgramCompetency(program_id=program.id, competency_id=competency.id)
 
 material = Material(
-    name="Руководство по авторизации в FastAPI",
+    name="Гайд по чистой архитектуре в FastAPI",
     link="https://habr.com/ru/articles/1051800/",
-    competency_id=competency.id
+    competency_id=comp.id,
 )
 task = Task(
-    name="Реализовать вход по JWT и проверку ролей",
-    description="Написать хэндлеры login и me, протестировать роли",
-    competency_id=competency.id,
-    max_attempts=2
+    name="Реализовать защищенный CRUD с ролями",
+    description="Написать эндпоинты и применить проверки ролей",
+    competency_id=comp.id,
 )
-db.add_all([prog_item, prog_comp, material, task])
+program = LearningProgram(
+    name="Онбординг Python-разработчика",
+    description="Базовая программа для выхода на проект",
+)
+db.add_all([material, task, program])
 db.commit()
 
-print("4. Создаем 3 демо-пользователей...")
-# 1. Администратор
-admin = User(
-    fio="Алексей Админов",
-    email="admin@webant.ru",
-    password=hash_password("admin123password"),
-    is_active=True
-)
-db.add(admin)
-db.commit()
-db.add(UserRole(user_id=admin.id, role_id=role_admin.id))
-
-# 2. Эксперт (Техлид)
-expert = User(
-    fio="Елена Экспертова",
-    email="expert@webant.ru",
-    password=hash_password("expert123password"),
-    is_active=True
-)
-db.add(expert)
-db.commit()
-db.add(UserRole(user_id=expert.id, role_id=role_expert.id))
-
-# 3. Сотрудник (привязываем прямой stack_id и grade_id)
+print("4. Создаем 3 пользователей (ID: 1=Админ, 2=Эксперт, 3=Сотрудник)...")
+admin = User(fio="Алексей Админов", email="admin@webant.ru", password=hash_password("admin123password"), is_active=True)
+expert = User(fio="Елена Экспертова", email="expert@webant.ru", password=hash_password("expert123password"), is_active=True)
 employee = User(
     fio="Иван Сотрудников",
     email="employee@webant.ru",
     password=hash_password("employee123password"),
+    position="Младший бэкенд-разработчик",
+    start_date=date(2026, 10, 1),
+    stack_id=stack_python.id,
     grade_id=grade_junior.id,
-    stack_id=stack_python.id,  # <-- прямое поле по новой миграции Даши!
-    is_active=True
+    is_active=True,
 )
-db.add(employee)
+db.add_all([admin, expert, employee])
 db.commit()
+
 db.add_all([
+    UserRole(user_id=admin.id, role_id=role_admin.id),
+    UserRole(user_id=expert.id, role_id=role_expert.id),
     UserRole(user_id=employee.id, role_id=role_employee.id),
-    UserProgram(user_id=employee.id, program_id=program.id, status="Назначена")
 ])
 db.commit()
 db.close()
-
-print("🎉 УСПЕХ! База идеально пересоздана и наполнена!")
+print("🎉 Готово! Можно открывать Swagger!")
