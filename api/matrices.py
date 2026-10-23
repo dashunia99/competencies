@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.core.database import get_db  # Убедись, что путь к get_db верный
+from core.database import get_db
 from app.models.base import CompetencyBlock, Competency
 from app.schemas.matrices import (
     CompetencyBlockCreate, CompetencyBlockUpdate, CompetencyBlockResponse,

@@ -18,8 +18,8 @@ app.include_router(learning_router, prefix="/api/v1")
 app.include_router(programs_router, prefix="/api/v1")
 app.include_router(submissions_router, prefix="/api/v1")
 app.include_router(competencies_router, prefix="/api/v1")
-app.include_router(matrices_router, prefix="/api/v1")
-app.include_router(content_router, prefix="/api/v1")
+app.include_router(matrices_router)
+app.include_router(content_router)
 @app.get("/api/v1/health", tags=["Служебное"], summary="Проверка живости сервиса")
 def health_check():
     return {"status": "ok"}
