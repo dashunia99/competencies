@@ -1,53 +1,48 @@
 import os
 import pandas as pd
-from app.models.base import Stack, Competency
 from core.database import SessionLocal
+from app.models.base import Stack, Competency, CompetencyBlock
 
 
 def seed_excel_matrix(file_path: str, stack_title: str):
     if not os.path.exists(file_path):
-        print(f" Файл не найден: {file_path}")
+        print(f"❌ Файл не найден: {file_path}")
         return
 
-    print(f"\n Парсинг иерархической структуры для стека '{stack_title}'...")
+    print(f"\n📂 Парсинг иерархической структуры для стека '{stack_title}'...")
     df = pd.read_excel(file_path)
-
-    # Пропускаем строку заголовков Excel и берем чистые данные
     df = df.iloc[1:].copy()
 
-    # Приводим первые три колонки к понятным именам
     df = df.rename(columns={
         df.columns[0]: 'theme',
         df.columns[1]: 'section',
         df.columns[2]: 'competency_text'
     })
 
-    # Заполняем пропуски методом forward fill (так как в Excel темы и разделы объединены)
     df['theme'] = df['theme'].ffill()
     df['section'] = df['section'].ffill()
 
     db = SessionLocal()
     try:
-        # 1. Находим или создаем Стек
+        # 1. Находим или создаём стек (Android / Flutter)
         stack_obj = db.query(Stack).filter(Stack.name == stack_title).first()
         if not stack_obj:
             stack_obj = Stack(name=stack_title)
             db.add(stack_obj)
             db.commit()
             db.refresh(stack_obj)
-            print(f" Создан стек '{stack_title}' с ID: {stack_obj.id}")
+            print(f"✅ Создан стек '{stack_title}' с ID: {stack_obj.id}")
         else:
-            print(f" Стек '{stack_title}' найден с ID: {stack_obj.id}")
+            print(f"ℹ️ Стек '{stack_title}' найден с ID: {stack_obj.id}")
 
         stack_id = stack_obj.id
 
-        # 2. Очищаем старые компетенции этого стека перед загрузкой
+        # 2. Очищаем старые компетенции этого стека перед перезаписью
         db.query(Competency).filter(Competency.stack_id == stack_id).delete()
         db.commit()
 
-        themes_cache = {}  # Кэш для тем: имя_темы -> объект Competency
-        sections_cache = {}  # Кэш для разделов: (имя_темы, имя_раздела) -> объект Competency
-
+        themes_cache = {}
+        sections_cache = {}
         count_themes = 0
         count_sections = 0
         count_comps = 0
@@ -60,65 +55,60 @@ def seed_excel_matrix(file_path: str, stack_title: str):
             if not theme_name or theme_name == 'nan':
                 continue
 
-            # --- УРОВЕНЬ 1: ТЕМА ---
+            # 3. Уровень 1 в дереве: Тема (родительский CompetencyBlock, parent_id=None)
             if theme_name not in themes_cache:
-                theme_comp = Competency(
-                    stack_id=stack_id,
-                    name=theme_name,
-                    description="Тема",
-                    level=1,
-                    parent_id=None  # Корневой элемент дерева
-                )
-                db.add(theme_comp)
-                db.commit()
-                db.refresh(theme_comp)
-                themes_cache[theme_name] = theme_comp
-                count_themes += 1
+                theme_block = db.query(CompetencyBlock).filter(
+                    CompetencyBlock.name == theme_name,
+                    CompetencyBlock.parent_id.is_(None)
+                ).first()
+                if not theme_block:
+                    theme_block = CompetencyBlock(name=theme_name, parent_id=None)
+                    db.add(theme_block)
+                    db.flush()
+                    count_themes += 1
+                themes_cache[theme_name] = theme_block
 
-            theme_obj = themes_cache[theme_name]
+            theme_block_obj = themes_cache[theme_name]
 
             if not section_name or section_name == 'nan':
                 continue
 
-            # --- УРОВЕНЬ 2: РАЗДЕЛ ---
+            # 4. Уровень 2 в дереве: Раздел внутри Темы (дочерний CompetencyBlock, parent_id=theme_block_obj.id)
             section_key = (theme_name, section_name)
             if section_key not in sections_cache:
-                section_comp = Competency(
-                    stack_id=stack_id,
-                    name=section_name,
-                    description="Раздел",
-                    level=2,
-                    parent_id=theme_obj.id  # Родитель — Тема
-                )
-                db.add(section_comp)
-                db.commit()
-                db.refresh(section_comp)
-                sections_cache[section_key] = section_comp
-                count_sections += 1
+                section_block = db.query(CompetencyBlock).filter(
+                    CompetencyBlock.name == section_name,
+                    CompetencyBlock.parent_id == theme_block_obj.id
+                ).first()
+                if not section_block:
+                    section_block = CompetencyBlock(name=section_name, parent_id=theme_block_obj.id)
+                    db.add(section_block)
+                    db.flush()
+                    count_sections += 1
+                sections_cache[section_key] = section_block
 
-            section_obj = sections_cache[section_key]
+            section_block_obj = sections_cache[section_key]
 
-            # --- УРОВЕНЬ 3: САМА КОМПЕТЕНЦИЯ (ТЕКСТ) ---
+            # 5. Лист дерева: Конкретная компетенция (привязана к разделу через block_id и к стеку через stack_id)
             if comp_text and comp_text != 'nan':
                 comp_item = Competency(
                     stack_id=stack_id,
-                    name=comp_text[:100] + "..." if len(comp_text) > 100 else comp_text,  # Короткое имя для отображения
-                    description=comp_text,  # Полный текст формулировки навыка
-                    level=3,
-                    parent_id=section_obj.id  # Родитель — Раздел
+                    block_id=section_block_obj.id,
+                    name=comp_text[:100] + "..." if len(comp_text) > 100 else comp_text,
+                    description=comp_text
                 )
                 db.add(comp_item)
                 count_comps += 1
 
         db.commit()
-        print(f" Дерево для '{stack_title}' успешно загружено:")
-        print(f"   - Тем: {count_themes}")
-        print(f"   - Разделов: {count_sections}")
-        print(f"   - Компетенций: {count_comps}")
+        print(f"🎉 Дерево для '{stack_title}' успешно загружено:")
+        print(f"   - Новых тем (блоков 1-го уровня): {count_themes} (всего в матрице: {len(themes_cache)})")
+        print(f"   - Новых разделов (блоков 2-го уровня): {count_sections} (всего в матрице: {len(sections_cache)})")
+        print(f"   - Компетенций добавлено: {count_comps}")
 
     except Exception as e:
         db.rollback()
-        print(f"Ошибка при обработке {stack_title}: {e}")
+        print(f"❌ Ошибка при обработке {stack_title}: {e}")
     finally:
         db.close()
 

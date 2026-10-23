@@ -10,7 +10,7 @@ from sqlalchemy import (
     BigInteger,
     Date,
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, synonym
 
 Base = declarative_base()
 
@@ -48,7 +48,8 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     fio = Column(String, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False)  # bcrypt-хеш
+    password_hash = Column(String, nullable=False)
+    password = synonym("password_hash")
     is_active = Column(Boolean, default=True)
 
     # Поля COMP-17:
