@@ -28,6 +28,71 @@ Backend-сервис для управления компетенциями и �
 
 Для временного публичного доступа дополнительно потребуется `cloudflared`. Покупать домен для Quick Tunnel не нужно.
 
+### Установка Docker Desktop
+
+На Windows Docker Desktop можно установить через `winget`:
+
+```powershell
+winget install --exact --id Docker.DockerDesktop
+```
+
+После установки перезагрузите Windows, если установщик этого потребует, запустите Docker Desktop и дождитесь запуска Docker Engine. Для Docker Desktop должна быть включена аппаратная виртуализация; обычно используется backend WSL 2.
+
+Проверьте установку в новом окне PowerShell:
+
+```powershell
+docker --version
+docker compose version
+docker run --rm hello-world
+```
+
+Если команда `docker` не найдена, полностью закройте и заново откройте терминал. Подробные требования и альтернативный установщик приведены в [официальной инструкции Docker Desktop для Windows](https://docs.docker.com/desktop/setup/install/windows-install/).
+
+### Установка cloudflared
+
+Этот шаг нужен только для временного доступа к локальному API через интернет:
+
+```powershell
+winget install --exact --id Cloudflare.cloudflared
+```
+
+Откройте новое окно PowerShell и проверьте установку:
+
+```powershell
+cloudflared --version
+```
+
+Quick Tunnel работает без аккаунта Cloudflare и без собственного домена. Терминал с `cloudflared` необходимо оставлять открытым всё время публичного доступа.
+
+### Проверка локальных портов
+
+Перед первым запуском проверьте, что необходимые порты не заняты:
+
+```powershell
+5432, 8000, 9000, 9001 | ForEach-Object {
+    $port = $_
+    $connection = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+
+    if ($connection) {
+        "Порт $port занят процессом PID $($connection[0].OwningProcess)"
+    } else {
+        "Порт $port свободен"
+    }
+}
+```
+
+Если порт занят, узнать имя процесса можно по выведенному PID:
+
+```powershell
+Get-Process -Id <PID>
+```
+
+Если порт занимает другой Docker-контейнер, найдите его командой:
+
+```powershell
+docker ps --format "table {{.Names}}\t{{.Ports}}"
+```
+
 ## Первый запуск
 
 ### 1. Получить проект
@@ -161,7 +226,7 @@ docker compose exec api python seed_matrix.py
 После локального запуска выполните в отдельном терминале:
 
 ```powershell
-cloudflared tunnel --url http://localhost:8000
+cloudflared tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:8000
 ```
 
 Команда напечатает временный HTTPS-адрес вида:
@@ -170,7 +235,7 @@ cloudflared tunnel --url http://localhost:8000
 https://random-name.trycloudflare.com
 ```
 
-Адрес работает, пока запущены компьютер, Docker Compose и процесс `cloudflared`. После остановки tunnel адрес перестаёт работать, а при следующем запуске создаётся новый.
+Дождитесь сообщения `Registered tunnel connection`, затем откройте выданный адрес с суффиксом `/docs`. Адрес работает, пока запущены компьютер, Docker Compose и процесс `cloudflared`. После остановки tunnel адрес перестаёт работать, а при следующем запуске создаётся новый.
 
 ### API и presigned-ссылки на файлы
 
@@ -179,7 +244,7 @@ https://random-name.trycloudflare.com
 В первом терминале:
 
 ```powershell
-cloudflared tunnel --url http://localhost:9000
+cloudflared tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:9000
 ```
 
 Скопируйте выданный HTTPS-адрес в `.env`:
@@ -197,7 +262,7 @@ docker compose up -d --force-recreate api
 Во втором терминале откройте tunnel для API:
 
 ```powershell
-cloudflared tunnel --url http://localhost:8000
+cloudflared tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:8000
 ```
 
 MinIO Console на порту `9001` публично открывать не следует. Bucket остаётся приватным, доступ к объектам предоставляется через временные подписанные ссылки.
@@ -335,6 +400,20 @@ docker compose logs postgres
 docker compose logs minio
 docker compose logs minio-init
 docker compose logs api
+```
+
+Если Quick Tunnel показывает `502 Bad Gateway` или Cloudflare `Error 1033`:
+
+1. убедитесь, что `http://127.0.0.1:8000/api/v1/health` открывается локально;
+2. не закрывайте терминал с `cloudflared`;
+3. дождитесь строки `Registered tunnel connection`;
+4. используйте новый адрес, выданный при текущем запуске, а не URL предыдущего tunnel;
+5. разрешите `cloudflared.exe` в брандмауэре Windows и временно отключите VPN или прокси, если соединение продолжает обрываться.
+
+Проверить API из PowerShell:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 ```
 
 Если порт занят, остановите использующий его процесс либо измените левую часть соответствующего `ports` в `docker-compose.yml`.
