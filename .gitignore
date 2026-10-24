@@ -21,6 +21,7 @@ venv/
 Thumbs.db
 
 # Generated output
+backups/
 *.log
 .coverage
 .coverage.*
