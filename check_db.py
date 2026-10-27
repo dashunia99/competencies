@@ -1,28 +1,37 @@
 import os
+import sys
 
-# Заставляем библиотеку выводить ошибки на чистом английском языке:
-os.environ["LC_ALL"] = "C"
-os.environ["PGCLIENTENCODING"] = "UTF-8"
+# Добавляем пути импорта
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import psycopg2
+from core.database import SessionLocal
+from app.models.base import User, Role, Stack, Grade, LearningProgram, Competency, Material, Task
 
-try:
-    print("Подключаемся к PostgreSQL...")
-    conn = psycopg2.connect(
-        host="localhost",
-        port=5432,
-        user="postgres",
-        password="223112",  # <-- напиши здесь свой пароль (например 1324354657)
-        dbname="postgres"
-    )
-    cur = conn.cursor()
-    cur.execute("SELECT datname FROM pg_database WHERE datistemplate = false;")
-    dbs = cur.fetchall()
+def audit_database():
+    db = SessionLocal()
+    try:
+        users = db.query(User).all()
+        roles = db.query(Role).all()
+        stacks = db.query(Stack).all()
+        grades = db.query(Grade).all()
+        programs = db.query(LearningProgram).all()
+        competencies_count = db.query(Competency).count()
+        materials_count = db.query(Material).count()
+        tasks_count = db.query(Task).count()
 
-    print("\n✅ УСПЕХ! Твои базы данных:")
-    for db in dbs:
-        print(f"  👉 {db[0]}")
-    conn.close()
+        print("\n🔍 АУДИТ ТЕКУЩЕЙ БАЗЫ ДАННЫХ:")
+        print(f"👤 Пользователей в базе: {len(users)} ({[u.email for u in users]})")
+        print(f"🏷️  Ролей в базе: {[r.name for r in roles]}")
+        print(f"📚 Стеков (направлений): {[s.name for s in stacks]}")
+        print(f"🎓 Грейдов: {[g.name for g in grades]}")
+        print(f"📖 Программ обучения: {[p.name for p in programs]}")
+        print(f"🧩 Тем (компетенций): {competencies_count} шт.")
+        print(f"📄 Материалов: {materials_count} шт.")
+        print(f"✏️  Заданий: {tasks_count} шт.\n")
+    except Exception as e:
+        print(f"❌ Ошибка аудита базы данных: {e}")
+    finally:
+        db.close()
 
-except Exception as e:
-    print(f"\n❌ НАСТОЯЩАЯ ПРИЧИНА ОШИБКИ: {e}")
+if __name__ == "__main__":
+    audit_database()
