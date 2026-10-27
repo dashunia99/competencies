@@ -64,6 +64,7 @@ app.include_router(content_router, prefix="/api/v1")
 
 # Честная проверка жизнеспособности (проверяем жива ли база данных)
 @app.get("/api/v1/health", tags=["Служебное"], summary="Проверка живости сервиса")
+
 def health_check(db: Session = Depends(get_db)):
     try:
         db.execute(text("SELECT 1"))
@@ -75,3 +76,7 @@ def health_check(db: Session = Depends(get_db)):
         "status": "ok" if db_status == "connected" else "degraded",
         "database": db_status,
     }
+
+def health_check():
+    return {"status": "ok"}
+
