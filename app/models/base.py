@@ -80,8 +80,8 @@ class CompetencyBlock(Base):
 
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
     parent_id = Column(Integer, ForeignKey('competency_blocks.id', ondelete='CASCADE'), nullable=True)
-
     parent = relationship("CompetencyBlock", remote_side=[id], backref="children")
 
 

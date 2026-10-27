@@ -1,10 +1,8 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
-from pydantic import BaseModel
 from datetime import datetime
-from app.models.base import LearningProgram, UserProgram
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from core.database import get_db
 from core.security import (
@@ -13,13 +11,50 @@ from core.security import (
     require_roles,
     verify_user_access,
 )
-from app.models.base import User, Role, UserRole
+from app.models.base import (
+    User,
+    Role,
+    UserRole,
+    Stack,
+    Grade,
+    LearningProgram,
+    UserProgram,
+)
 from schemas.users import CreateUserSchema, UserSchema, UpdateUserSchema
 
 router = APIRouter(prefix="/users", tags=["Пользователи"])
 
 
-# 1. Создание пользователя (только Администратор) — сохраняем новые поля COMP-17
+class AssignProgramRequest(BaseModel):
+    program_id: int
+
+
+def _check_last_active_admin(user: User, db: Session) -> bool:
+    """Проверяет, является ли пользователь последним активным администратором."""
+    admin_role = db.query(Role).filter(Role.name == "Администратор").first()
+    if not admin_role:
+        return False
+
+    is_admin = db.query(UserRole).filter(
+        UserRole.user_id == user.id,
+        UserRole.role_id == admin_role.id
+    ).first()
+
+    if not is_admin:
+        return False
+
+    active_admins_count = (
+        db.query(User)
+        .join(UserRole, User.id == UserRole.user_id)
+        .filter(UserRole.role_id == admin_role.id, User.is_active.is_(True))
+        .count()
+    )
+    return active_admins_count <= 1
+
+
+# ============================================================================
+# 1. СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ (Только Администратор)
+# ============================================================================
 @router.post(
     "/",
     response_model=UserSchema,
@@ -31,6 +66,7 @@ def create_user(
     db: Session = Depends(get_db),
     admin_user: User = Depends(require_roles("Администратор")),
 ):
+    # Проверка уникальности email
     existing_user = db.query(User).filter(User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(
@@ -38,7 +74,15 @@ def create_user(
             detail="Пользователь с таким email уже существует",
         )
 
-    # Записываем все поля из схемы COMP-17
+    # Валидация существования стека и грейда (защита от ошибки 500)
+    if user_data.stack_id is not None:
+        if not db.query(Stack).filter(Stack.id == user_data.stack_id).first():
+            raise HTTPException(status_code=404, detail="Указанный стек/направление не найден")
+
+    if user_data.grade_id is not None:
+        if not db.query(Grade).filter(Grade.id == user_data.grade_id).first():
+            raise HTTPException(status_code=404, detail="Указанный грейд не найден")
+
     new_user = User(
         fio=user_data.fio,
         email=user_data.email,
@@ -62,8 +106,7 @@ def create_user(
             db.commit()
             db.refresh(role)
 
-        user_role = UserRole(user_id=new_user.id, role_id=role.id)
-        db.add(user_role)
+        db.add(UserRole(user_id=new_user.id, role_id=role.id))
         db.commit()
         assigned_role_name = role.name
 
@@ -80,7 +123,9 @@ def create_user(
     }
 
 
-# 2. Список всех пользователей (Админ и Эксперт)
+# ============================================================================
+# 2. СПИСОК ВСЕХ ПОЛЬЗОВАТЕЛЕЙ (Администратор и Эксперт)
+# ============================================================================
 @router.get(
     "/",
     response_model=List[UserSchema],
@@ -110,7 +155,9 @@ def get_all_users(
     return result
 
 
-# 3. Карточка пользователя по ID (своя или для Админа/Эксперта) — COMP-17
+# ============================================================================
+# 3. КАРТОЧКА ПОЛЬЗОВАТЕЛЯ ПО ID (Своя или для Администратора/Эксперта)
+# ============================================================================
 @router.get(
     "/{user_id}",
     response_model=UserSchema,
@@ -144,7 +191,91 @@ def get_user_by_id(
     }
 
 
-# 4. Блокировка пользователя
+# ============================================================================
+# 4. РЕДАКТИРОВАНИЕ ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ (Администратор и Эксперт)
+# ============================================================================
+@router.patch(
+    "/{user_id}",
+    response_model=UserSchema,
+    summary="Изменить профиль пользователя (должность, стек, грейд, роль)",
+)
+def update_user_profile(
+    user_id: int,
+    payload: UpdateUserSchema,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("Администратор", "Эксперт")),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # Валидация внешних ключей
+    if payload.stack_id is not None:
+        if not db.query(Stack).filter(Stack.id == payload.stack_id).first():
+            raise HTTPException(status_code=404, detail="Указанный стек/направление не найден")
+
+    if payload.grade_id is not None:
+        if not db.query(Grade).filter(Grade.id == payload.grade_id).first():
+            raise HTTPException(status_code=404, detail="Указанный грейд не найден")
+
+    if payload.fio is not None:
+        user.fio = payload.fio
+    if payload.position is not None:
+        user.position = payload.position
+    if payload.start_date is not None:
+        user.start_date = payload.start_date
+    if payload.stack_id is not None:
+        user.stack_id = payload.stack_id
+    if payload.grade_id is not None:
+        user.grade_id = payload.grade_id
+
+    # 🛡️ ЗАЩИТА: Менять роль пользователя разрешено ТОЛЬКО Администратору!
+    if payload.role_name is not None:
+        current_roles = [r.name for r in current_user.roles]
+        if "Администратор" not in current_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Только администратор имеет право изменять роли пользователей",
+            )
+
+        # Защита последнего администратора от понижения в правах
+        if payload.role_name != "Администратор" and _check_last_active_admin(user, db):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Нельзя снять права с последнего активного администратора",
+            )
+
+        role = db.query(Role).filter(Role.name == payload.role_name).first()
+        if not role:
+            role = Role(name=payload.role_name)
+            db.add(role)
+            db.commit()
+            db.refresh(role)
+
+        # Переназначаем роль
+        db.query(UserRole).filter(UserRole.user_id == user.id).delete()
+        db.add(UserRole(user_id=user.id, role_id=role.id))
+
+    db.commit()
+    db.refresh(user)
+
+    role_name = user.roles[0].name if user.roles else None
+    return {
+        "id": user.id,
+        "fio": user.fio,
+        "email": user.email,
+        "position": user.position,
+        "start_date": user.start_date,
+        "role": role_name,
+        "stack": user.stack.name if user.stack else None,
+        "grade": user.grade.name if user.grade else None,
+        "is_active": user.is_active,
+    }
+
+
+# ============================================================================
+# 5. БЛОКИРОВКА ПОЛЬЗОВАТЕЛЯ (Только Администратор)
+# ============================================================================
 @router.post(
     "/{user_id}/block",
     response_model=UserSchema,
@@ -158,6 +289,20 @@ def block_user(
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    # Защита от блокировки самого себя
+    if user.id == admin_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Вы не можете заблокировать самого себя",
+        )
+
+    # Защита последнего активного администратора
+    if _check_last_active_admin(user, db):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нельзя заблокировать последнего активного администратора системы",
+        )
 
     user.is_active = False
     db.commit()
@@ -176,13 +321,13 @@ def block_user(
         "is_active": user.is_active,
     }
 
-class AssignProgramRequest(BaseModel):
-    program_id: int
 
-# Просмотр программ конкретного сотрудника (Админ, Эксперт или сам сотрудник)
+# ============================================================================
+# 6. ПРОСМОТР НАЗНАЧЕННЫХ ПРОГРАММ СОТРУДНИКА
+# ============================================================================
 @router.get(
     "/{user_id}/programs",
-    summary="Программы сотрудника по его ID ",
+    summary="Программы сотрудника по его ID",
 )
 def get_user_programs(
     user_id: int,
@@ -205,10 +350,14 @@ def get_user_programs(
             })
     return result
 
+
+# ============================================================================
+# 7. НАЗНАЧЕНИЕ ПРОГРАММЫ СОТРУДНИКУ (Администратор и Эксперт)
+# ============================================================================
 @router.post(
     "/{user_id}/programs",
     status_code=status.HTTP_201_CREATED,
-    summary="Назначить программу сотруднику",
+    summary="Назначить программу сотруднику (COMP-26)",
 )
 def assign_program_to_user(
     user_id: int,
@@ -216,25 +365,25 @@ def assign_program_to_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("Администратор", "Эксперт")),
 ):
-    # 1. Проверяем целевого пользователя
+    # 1. Проверяем существование пользователя
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    # Проверка роли: целевой пользователь должен быть именно Сотрудником
+    # 2. Строгая проверка роли: назначать можно только Сотруднику
     target_roles = [r.name for r in target_user.roles]
-    if "Сотрудник" not in target_roles and ("Администратор" in target_roles or "Эксперт" in target_roles):
+    if "Сотрудник" not in target_roles:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Программу обучения можно назначать только сотрудникам",
+            detail="Программу обучения можно назначать только пользователям с ролью 'Сотрудник'",
         )
 
-    # 2. Проверяем существование программы
+    # 3. Проверяем существование программы
     program = db.query(LearningProgram).filter(LearningProgram.id == payload.program_id).first()
     if not program:
-        raise HTTPException(status_code=404, detail="Программа не найдена")
+        raise HTTPException(status_code=404, detail="Программа обучения не найдена")
 
-    # 3. Проверка на дубликат (по ТЗ: 409 Conflict)
+    # 4. Проверка на дубликат (по ТЗ: 409 Conflict)
     existing = db.query(UserProgram).filter(
         UserProgram.user_id == user_id,
         UserProgram.program_id == payload.program_id,
@@ -245,7 +394,7 @@ def assign_program_to_user(
             detail="Эта программа уже назначена данному сотруднику",
         )
 
-    # 4. Сохраняем строку в user_programs
+    # 5. Создаем запись о назначении
     assignment = UserProgram(
         user_id=user_id,
         program_id=payload.program_id,
@@ -262,59 +411,4 @@ def assign_program_to_user(
         "program_id": payload.program_id,
         "assigned_by": current_user.id,
         "assigned_at": assignment.assigned_at,
-    }
-
-@router.patch(
-    "/{user_id}",
-    response_model=UserSchema,
-    summary="Изменить профиль пользователя: грейд, направление, роль, должность",
-)
-def update_user_profile(
-    user_id: int,
-    payload: UpdateUserSchema,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("Администратор", "Эксперт")),
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-
-    if payload.fio is not None:
-        user.fio = payload.fio
-    if payload.position is not None:
-        user.position = payload.position
-    if payload.start_date is not None:
-        user.start_date = payload.start_date
-    if payload.stack_id is not None:
-        user.stack_id = payload.stack_id
-    if payload.grade_id is not None:
-        user.grade_id = payload.grade_id
-
-    # Если передана новая роль — обновляем привязку роли
-    if payload.role_name is not None:
-        role = db.query(Role).filter(Role.name == payload.role_name).first()
-        if not role:
-            role = Role(name=payload.role_name)
-            db.add(role)
-            db.commit()
-            db.refresh(role)
-
-        # Удаляем старую роль и ставим новую
-        db.query(UserRole).filter(UserRole.user_id == user.id).delete()
-        db.add(UserRole(user_id=user.id, role_id=role.id))
-
-    db.commit()
-    db.refresh(user)
-
-    role_name = user.roles[0].name if user.roles else None
-    return {
-        "id": user.id,
-        "fio": user.fio,
-        "email": user.email,
-        "position": user.position,
-        "start_date": user.start_date,
-        "role": role_name,
-        "stack": user.stack.name if user.stack else None,
-        "grade": user.grade.name if user.grade else None,
-        "is_active": user.is_active,
     }
