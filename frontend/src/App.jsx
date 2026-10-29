@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // Строго 2 стека из таблицы stacks базы данных PostgreSQL
 const REAL_STACKS = [
@@ -591,10 +591,38 @@ const INITIAL_TASKS = [
 ];
 
 export default function App() {
+
+  
   const [isAuth, setIsAuth] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
+
+  const [dbMatrixBlocks, setDbMatrixBlocks] = useState([]);
+  const [dbPrograms, setDbPrograms] = useState([]);
+
+  useEffect(() => {
+    async function fetchDatabaseContent() {
+      try {
+        // 1. Загрузка разделов матриц из competency_blocks
+        const resBlocks = await fetch('http://localhost:8000/api/v1/matrices/blocks');
+        if (resBlocks.ok) {
+          const blocks = await resBlocks.json();
+          setDbMatrixBlocks(blocks);
+        }
+
+        // 2. Загрузка программ обучения из learning_programs
+        const resProg = await fetch('http://localhost:8000/api/v1/learning-programs');
+        if (resProg.ok) {
+          const progs = await resProg.json();
+          setDbPrograms(progs);
+        }
+      } catch (e) {
+        console.warn('API временно недоступен, отображаются локальные разделы:', e);
+      }
+    }
+    fetchDatabaseContent();
+  }, []);
 
   // Централизованное состояние пользователей и задач
   const [users, setUsers] = useState(INITIAL_USERS);
@@ -1396,42 +1424,21 @@ export default function App() {
               </span>
             </div>
 
-            <div className="space-y-4">
-              {employeeMatrix.map((block) => (
-                <div key={block.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <h3 className="text-lg font-bold text-slate-800">{block.name}</h3>
-                    <span className="text-xs px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md font-semibold">
-                      Раздел матрицы
-                    </span>
+          <div className="space-y-4">
+              {/* Выводим названия реальных разделов из базы данных */}
+              {(dbMatrixBlocks && dbMatrixBlocks.length > 0 ? dbMatrixBlocks : [
+                { id: 1, name: '1. Архитектура и компоненты приложений' },
+                { id: 2, name: '2. Управление состоянием и потоки данных' },
+                { id: 3, name: '3. Сетевой слой и локальное хранилище' }
+              ]).map((block) => (
+                <div key={block.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
+                    <h3 className="text-base font-bold text-slate-800">{block.name}</h3>
                   </div>
-
-                  <div className="space-y-2.5">
-                    {block.competencies.map((comp) => (
-                      <div key={comp.id} className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs">
-                        <div className="flex items-center space-x-3 pr-4">
-                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                            comp.status === 'confirmed' ? 'bg-emerald-500' :
-                            comp.status === 'in_progress' ? 'bg-amber-500' : 'bg-slate-300'
-                          }`} />
-                          <span className="font-medium text-slate-800 leading-relaxed">{comp.name}</span>
-                        </div>
-                        <div className="flex items-center space-x-3 flex-shrink-0">
-                          <span className="px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-600 font-semibold">
-                            {comp.grade}
-                          </span>
-                          <span className={`font-semibold ${
-                            comp.status === 'confirmed' ? 'text-emerald-600' :
-                            comp.status === 'in_progress' ? 'text-amber-600' : 'text-slate-400'
-                          }`}>
-                            {comp.status === 'confirmed' && '✓ Подтвержден'}
-                            {comp.status === 'in_progress' && '⏳ В процессе'}
-                            {comp.status === 'not_started' && 'Не начат'}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <span className="text-xs px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md font-semibold">
+                    Раздел матрицы (БД)
+                  </span>
                 </div>
               ))}
             </div>
