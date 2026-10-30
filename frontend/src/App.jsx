@@ -36,7 +36,7 @@ const INITIAL_USERS = [
     email: 'employee@webant.ru',
     password: 'employee123password',
     role: 'Сотрудник',
-    stack_id: null, // До назначения админом — без стека и программы
+    stack_id: null,
     stack: null,
     grade: 'Junior',
     is_active: true,
@@ -45,7 +45,6 @@ const INITIAL_USERS = [
 ];
 
 // 3-уровневая структура программ обучения, соответствующая матрице компетенций:
-// Тема (Level 1) -> Подтема (Level 2) -> Раздел/Компетенция (Level 3) -> Материалы + Задания
 const LEARNING_PROGRAMS = {
   Flutter: {
     title: 'Программа «Flutter: стажировка»',
@@ -297,7 +296,7 @@ const LEARNING_PROGRAMS = {
   }
 };
 
-// Реальные матрицы из БД
+// Реальные матрицы из БД с навыками и статусами
 const MATRICES = {
   Flutter: [
     {
@@ -555,7 +554,8 @@ const INITIAL_TASKS = [
     taskCondition: 'Создать экран списка заметок на MVVM. Бизнес-логика фильтрации должна быть изолирована от Fragment.',
     rules: 'Ветка: feature/notes-mvvm. Результат — ссылка на pull request.',
     materials: [
-      { title: 'Официальный гайд Google: ViewModel Overview', url: 'https://developer.android.com/topic/libraries/architecture/viewmodel' }
+      { title: 'Официальный гайд Google: ViewModel Overview', url: 'https://developer.android.com/topic/libraries/architecture/viewmodel' },
+      { title: 'Android Developers: StateFlow and SharedFlow', url: 'https://developer.android.com/kotlin/flow/stateflow-and-sharedflow' }
     ],
     submissions: [
       {
@@ -591,8 +591,6 @@ const INITIAL_TASKS = [
 ];
 
 export default function App() {
-
-  
   const [isAuth, setIsAuth] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -604,36 +602,49 @@ export default function App() {
   useEffect(() => {
     async function fetchDatabaseContent() {
       try {
-        // 1. Загрузка разделов матриц из competency_blocks
-        const resBlocks = await fetch('http://localhost:8000/api/v1/matrices/blocks');
+        const resBlocks = await fetch('/api/v1/matrices/blocks');
         if (resBlocks.ok) {
           const blocks = await resBlocks.json();
           setDbMatrixBlocks(blocks);
         }
 
-        // 2. Загрузка программ обучения из learning_programs
-        const resProg = await fetch('http://localhost:8000/api/v1/learning-programs');
+        const resProg = await fetch('/api/v1/programs/');
         if (resProg.ok) {
           const progs = await resProg.json();
           setDbPrograms(progs);
         }
       } catch (e) {
-        console.warn('API временно недоступен, отображаются локальные разделы:', e);
+        console.warn('API временно недоступен:', e);
       }
     }
     fetchDatabaseContent();
   }, []);
 
-  // Централизованное состояние пользователей и задач
+  // Централизованное состояние
   const [users, setUsers] = useState(INITIAL_USERS);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [currentRole, setCurrentRole] = useState('Сотрудник');
-  const [currentTab, setCurrentTab] = useState('profile'); // 'profile' | 'program' | 'tasks' | 'matrix' | 'reviews' | 'users'
+  const [currentTab, setCurrentTab] = useState('profile');
   const [tasks, setTasks] = useState(INITIAL_TASKS);
 
   // Состояние выбранного задания и экрана
   const [selectedTask, setSelectedTask] = useState(null);
   const [taskFilter, setTaskFilter] = useState('all');
+
+  // Аккордеон тем программы обучения (раскрыты/свернуты)
+  const [expandedThemes, setExpandedThemes] = useState({
+    'fl-t1': true,
+    'fl-t2': true,
+    'an-t1': true,
+    'an-t2': true,
+  });
+
+  const toggleTheme = (themeId) => {
+    setExpandedThemes((prev) => ({
+      ...prev,
+      [themeId]: !prev[themeId],
+    }));
+  };
 
   // Модальные окна
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
@@ -646,7 +657,7 @@ export default function App() {
 
   const [isChangeStackModalOpen, setIsChangeStackModalOpen] = useState(false);
   const [targetUser, setTargetUser] = useState(null);
-  const [selectedStackId, setSelectedStackId] = useState(2); // по дефолту Flutter
+  const [selectedStackId, setSelectedStackId] = useState(2);
 
   // Актуальный объект текущего пользователя
   const currentUser = users.find((u) => u.id === currentUserId) || users[2];
@@ -683,7 +694,7 @@ export default function App() {
     setSelectedTask(null);
   };
 
-  // 1. АДМИНИСТРАТОР: Назначает / меняет стек сотруднику
+  // Администратор: Назначение стека сотруднику
   const handleSaveStack = (e) => {
     e.preventDefault();
     if (!targetUser) return;
@@ -706,7 +717,7 @@ export default function App() {
     );
   };
 
-  // Перевод задания в статус "В работе" (кнопка на экране 05)
+  // Перевод задания в статус "В работе"
   const handleStartTask = (taskId) => {
     setTasks((prev) =>
       prev.map((t) => (t.id === taskId ? { ...t, status: 'in_progress' } : t))
@@ -714,7 +725,7 @@ export default function App() {
     setSelectedTask((prev) => (prev ? { ...prev, status: 'in_progress' } : null));
   };
 
-  // 2. СОТРУДНИК: Отправка домашки (сдача / пересдача)
+  // Отправка задания на проверку (Сотрудник)
   const handleSubmitTask = (e) => {
     e.preventDefault();
     if (!selectedTask || !submitLink.trim()) return;
@@ -751,7 +762,7 @@ export default function App() {
     setSubmitComment('');
   };
 
-  // 3. ЭКСПЕРТ: Проверка задания (Принять / Отклонить)
+  // Проверка задания экспертом
   const handleReviewSubmit = (e) => {
     e.preventDefault();
     if (!selectedTask) return;
@@ -788,6 +799,14 @@ export default function App() {
   const employeeTasks = currentUser.stack ? tasks.filter((t) => t.stack === currentUser.stack) : [];
   const pendingReviews = tasks.filter((t) => t.status === 'pending');
 
+  // Динамический подсчет статистики по матрице
+  const allCompetencies = employeeMatrix.flatMap((block) => block.competencies || []);
+  const confirmedCount = allCompetencies.filter((c) => c.status === 'confirmed').length;
+  const inProgressCount = allCompetencies.filter((c) => c.status === 'in_progress').length;
+  const notStartedCount = allCompetencies.filter((c) => c.status === 'not_started').length;
+  const completedTasksCount = employeeTasks.filter((t) => t.status === 'approved').length;
+  const totalTasksCount = employeeTasks.length;
+
   // Фильтрация в табе "Мои задания"
   const filteredTasks = employeeTasks.filter((t) => {
     if (taskFilter === 'all') return true;
@@ -798,7 +817,6 @@ export default function App() {
     return true;
   });
 
-  // Вспомогательная функция для открытия задания по ID из дерева программы
   const openTaskFromSection = (taskId) => {
     const found = tasks.find((t) => t.id === taskId);
     if (found) {
@@ -807,7 +825,9 @@ export default function App() {
     }
   };
 
-  // ЭКРАН 1: ВХОД (СТРОГО 3 РОЛИ)
+  // ==========================================
+  // ЭКРАН 1: ВХОД
+  // ==========================================
   if (!isAuth) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
@@ -857,7 +877,6 @@ export default function App() {
             </button>
           </form>
 
-          {/* СТРОГО 3 КНОПКИ ДЛЯ БЫСТРОГО ТЕСТИРОВАНИЯ */}
           <div className="mt-8 pt-6 border-t border-slate-100">
             <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider text-center mb-3">
               Быстрый вход для проверки
@@ -897,7 +916,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f5f6f8] flex flex-col font-sans text-slate-800">
       {/* ======================================================== */}
-      {/* ВЕРХНЯЯ ШАПКА В ТОЧНОСТИ КАК НА МАКЕТАХ 026 / 03 / 05    */}
+      {/* ВЕРХНЯЯ ШАПКА                                            */}
       {/* ======================================================== */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -906,7 +925,6 @@ export default function App() {
               <span className="font-bold text-slate-900 tracking-tight text-base">Компетенции</span>
             </div>
 
-            {/* Навигация Сотрудника (как на Скриншоте 2 и 3) */}
             {currentRole === 'Сотрудник' && (
               <nav className="flex space-x-6 text-sm">
                 <button
@@ -965,7 +983,6 @@ export default function App() {
               </nav>
             )}
 
-            {/* Навигация Эксперта */}
             {currentRole === 'Эксперт' && (
               <nav className="flex space-x-6 text-sm">
                 <button
@@ -984,7 +1001,6 @@ export default function App() {
               </nav>
             )}
 
-            {/* Навигация Администратора */}
             {currentRole === 'Администратор' && (
               <nav className="flex space-x-6 text-sm">
                 <button
@@ -999,7 +1015,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Правая часть: имя, переключение ролей и кнопка Выйти */}
           <div className="flex items-center space-x-5 text-sm">
             <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
               <span className="text-[11px] font-semibold text-slate-500 px-2">Роль:</span>
@@ -1033,17 +1048,14 @@ export default function App() {
       <main className="flex-1 max-w-6xl w-full mx-auto p-8 space-y-6">
 
         {/* ======================================================== */}
-        {/* 1. ЛИЧНЫЙ КАБИНЕТ СОТРУДНИКА (СТРОГО КАК НА СКРИНШОТЕ 2) */}
+        {/* 1. ЛИЧНЫЙ КАБИНЕТ СОТРУДНИКА (ПО МАКЕТУ 02 И 02б)        */}
         {/* ======================================================== */}
         {currentRole === 'Сотрудник' && currentTab === 'profile' && (
           <div className="space-y-6">
-            <div className="text-xs text-slate-400">
-              {currentUser.stack ? '02 Личный кабинет' : '02б Личный кабинет — без программы'}
-            </div>
-
-            {/* Карточка пользователя с круглым аватаром (как на скриншоте 2) */}
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center space-x-5">
-              <div className="w-14 h-14 bg-slate-200 rounded-full flex-shrink-0"></div>
+              <div className="w-14 h-14 bg-slate-200 rounded-full flex-shrink-0 flex items-center justify-center text-slate-500 font-bold text-lg">
+                {currentUser.fio ? currentUser.fio[0] : 'И'}
+              </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{currentUser.fio}</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -1052,11 +1064,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* Блок «Моя программа» */}
+            {/* Блок «Моя программа» с прогресс-баром */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold text-slate-900">Моя программа</h3>
               {!currentUser.stack ? (
-                /* В точности как на Скриншоте 2 */
                 <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-2">
                   <h4 className="text-sm font-bold text-slate-900">Программа обучения пока не назначена</h4>
                   <p className="text-xs text-slate-500 leading-relaxed">
@@ -1064,29 +1075,47 @@ export default function App() {
                   </p>
                 </div>
               ) : (
-                <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-900">{currentProgram?.title}</h4>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Последовательный трек тем и практических заданий для грейда {currentUser.grade}.
-                    </p>
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">{currentProgram?.title}</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Пройдено {completedTasksCount} из {totalTasksCount} практических заданий
+                      </p>
+                    </div>
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => setCurrentTab('program')}
+                        className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Открыть программу
+                      </button>
+                      <button
+                        onClick={() => setCurrentTab('tasks')}
+                        className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg transition-colors"
+                      >
+                        Мои задания
+                      </button>
+                    </div>
                   </div>
-                  <button
-                    onClick={() => setCurrentTab('program')}
-                    className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition-colors"
-                  >
-                    Перейти к программе →
-                  </button>
+
+                  {/* Прогресс-бар по макету 02 */}
+                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-slate-900 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${totalTasksCount > 0 ? (completedTasksCount / totalTasksCount) * 100 : 0}%` }}
+                    ></div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Блок «Матрица компетенций» (в точности как на Скриншоте 2) */}
+            {/* Блок «Матрица компетенций» с живым счетчиком */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold text-slate-900">Матрица компетенций</h3>
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-2">
-                <div className="text-xs text-slate-500">
-                  Подтверждено 12 · Не подтверждено 2 · Не оценено 20
+                <div className="text-xs text-slate-500 font-medium">
+                  Подтверждено {confirmedCount} · В процессе {inProgressCount} · Не оценено {notStartedCount}
                 </div>
                 <div>
                   <button
@@ -1108,8 +1137,7 @@ export default function App() {
         )}
 
         {/* ======================================================== */}
-        {/* 2. ПРОГРАММА ОБУЧЕНИЯ (СТРОГО КАК НА СКРИНШОТЕ 3)        */}
-        {/* 3 УРОВНЯ: ТЕМА -> ПОДТЕМА -> РАЗДЕЛ -> МАТЕРИАЛЫ/ЗАДАНИЯ */}
+        {/* 2. ПРОГРАММА ОБУЧЕНИЯ (АККОРДЕОН В ТОЧНОСТИ ПО МАКЕТУ 03) */}
         {/* ======================================================== */}
         {currentRole === 'Сотрудник' && currentTab === 'program' && currentProgram && (
           <div className="space-y-6">
@@ -1120,74 +1148,95 @@ export default function App() {
               <span>← В кабинет</span>
             </button>
 
-            <h2 className="text-2xl font-bold text-slate-900">{currentProgram.title}</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-900">{currentProgram.title}</h2>
+              <span className="text-xs font-semibold px-3 py-1 bg-slate-100 text-slate-600 rounded-full border border-slate-200">
+                Стек: {currentUser.stack}
+              </span>
+            </div>
 
-            <div className="space-y-6">
-              {currentProgram.themes.map((theme) => (
-                <div key={theme.id} className="space-y-2">
-                  {/* Заголовок Темы (Уровень 1) в стиле серой плашки макета 03 */}
-                  <div className="bg-[#e9ecf1] px-5 py-3 rounded-lg text-xs font-bold text-slate-800 tracking-wide">
-                    ▾ {theme.title}
-                  </div>
-
-                  {/* Список Подтем (Уровень 2) */}
-                  <div className="space-y-2">
-                    {theme.subthemes.map((subtheme) => (
-                      <div key={subtheme.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-                        {/* Строка подтемы с плановым временем и статусом */}
-                        <div className="px-6 py-4 flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs text-slate-400 font-medium w-6">{subtheme.number}</span>
-                            <span className="text-sm font-bold text-slate-900">{subtheme.title}</span>
-                          </div>
-                          <div className="flex items-center space-x-4">
-                            <span className="text-xs text-slate-400">план {subtheme.planTime}</span>
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                              subtheme.status === 'Принято' ? 'bg-[#e7f7ed] text-[#1e8346]' :
-                              subtheme.status === 'Возвращено' ? 'bg-[#fdebee] text-[#cf2a45]' :
-                              subtheme.status === 'На проверке' ? 'bg-[#fef4e5] text-[#b47113]' :
-                              'bg-[#f0f2f5] text-slate-600'
-                            }`}>
-                              {subtheme.status}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Уровень 3: Разделы (компетенции) с материалами и карточками заданий */}
-                        <div className="border-t border-slate-100 bg-slate-50/70 p-4 pl-12 space-y-3">
-                          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                            Разделы и практические карточки:
-                          </span>
-                          {subtheme.sections.map((sec) => (
-                            <div key={sec.id} className="bg-white p-4 rounded-lg border border-slate-200 flex items-center justify-between">
-                              <div>
-                                <div className="text-xs font-bold text-slate-900">
-                                  {sec.number} {sec.title}
-                                </div>
-                                <div className="text-[11px] text-slate-500 mt-0.5">
-                                  Компетенция: {sec.competency} • {sec.materials.length} материала
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => openTaskFromSection(sec.taskId)}
-                                className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-md shadow-xs transition-colors"
-                              >
-                                Открыть задание →
-                              </button>
-                            </div>
-                          ))}
-                        </div>
+            <div className="space-y-4">
+              {currentProgram.themes.map((theme) => {
+                const isExpanded = expandedThemes[theme.id] !== false;
+                return (
+                  <div key={theme.id} className="space-y-2">
+                    {/* Кликабельная серая плашка Темы */}
+                    <button
+                      type="button"
+                      onClick={() => toggleTheme(theme.id)}
+                      className="w-full bg-[#e9ecf1] hover:bg-[#dfe3ea] px-5 py-3.5 rounded-xl text-xs font-bold text-slate-800 tracking-wide flex items-center justify-between transition-colors text-left"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <span className="text-slate-600">{isExpanded ? '▾' : '▸'}</span>
+                        <span>{theme.title}</span>
                       </div>
-                    ))}
+                      <span className="text-[11px] font-medium text-slate-500">
+                        {theme.subthemes.length} подтемы
+                      </span>
+                    </button>
+
+                    {/* Развернутый список подтем */}
+                    {isExpanded && (
+                      <div className="space-y-2 pl-2 transition-all">
+                        {theme.subthemes.map((subtheme) => (
+                          <div key={subtheme.id} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+                            <div className="px-6 py-4 flex items-center justify-between bg-white">
+                              <div className="flex items-center space-x-4">
+                                <span className="text-xs text-slate-400 font-semibold w-6">{subtheme.number}</span>
+                                <span className="text-sm font-bold text-slate-900">{subtheme.title}</span>
+                              </div>
+                              <div className="flex items-center space-x-4">
+                                <span className="text-xs text-slate-400">план {subtheme.planTime}</span>
+                                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                                  subtheme.status === 'Принято' ? 'bg-[#e7f7ed] text-[#1e8346]' :
+                                  subtheme.status === 'Возвращено' ? 'bg-[#fdebee] text-[#cf2a45]' :
+                                  subtheme.status === 'На проверке' ? 'bg-[#fef4e5] text-[#b47113]' :
+                                  'bg-[#f0f2f5] text-slate-600'
+                                }`}>
+                                  {subtheme.status}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Уровень 3: Разделы с материалами и карточками заданий */}
+                            <div className="border-t border-slate-100 bg-slate-50/70 p-4 pl-12 space-y-2.5">
+                              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                Задания и материалы:
+                              </div>
+                              {subtheme.sections.map((sec) => (
+                                <div key={sec.id} className="bg-white p-3.5 rounded-lg border border-slate-200 flex items-center justify-between hover:border-slate-300 transition-colors">
+                                  <div>
+                                    <div className="text-xs font-bold text-slate-900">
+                                      {sec.number} {sec.title}
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 mt-0.5 flex items-center space-x-2">
+                                      <span>Компетенция: <strong>{sec.competency}</strong></span>
+                                      <span>•</span>
+                                      <span>Материалов: {sec.materials.length}</span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => openTaskFromSection(sec.taskId)}
+                                    className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-md shadow-xs transition-colors whitespace-nowrap"
+                                  >
+                                    Открыть задание →
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
 
         {/* ======================================================== */}
-        {/* 3. КАРТОЧКА ЗАДАНИЯ (СТРОГО КАК НА СКРИНШОТЕ 4)          */}
+        {/* 3. КАРТОЧКА ЗАДАНИЯ (ПО МАКЕТУ 05 И 05б)                 */}
         {/* ======================================================== */}
         {currentRole === 'Сотрудник' && (currentTab === 'task_detail' || (currentTab === 'tasks' && selectedTask)) && selectedTask && (
           <div className="space-y-6">
@@ -1221,7 +1270,6 @@ export default function App() {
               Компетенция: {selectedTask.competency} · Плановое время: {selectedTask.planTime}
             </p>
 
-            {/* Белая карточка: Описание, Практическое задание, Правила (как на Скриншоте 4) */}
             <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
               <div>
                 <h4 className="text-sm font-bold text-slate-900 mb-1.5">Описание</h4>
@@ -1239,7 +1287,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Блок Ресурсы (как на Скриншоте 4) */}
+            {/* Блок Ресурсы (материалы для изучения) */}
             <div className="space-y-3">
               <h3 className="text-sm font-bold text-slate-900">Ресурсы</h3>
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-2.5">
@@ -1289,7 +1337,7 @@ export default function App() {
               </div>
             )}
 
-            {/* Кнопка действия (как на Скриншоте 4) */}
+            {/* Кнопки действий */}
             <div className="space-y-3">
               {selectedTask.status === 'not_started' && (
                 <button
@@ -1321,7 +1369,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Пунктирная подсказка в точности как на Скриншоте 4 */}
               <div className="p-4 rounded-xl border border-dashed border-slate-300 bg-white text-xs text-slate-500">
                 После нажатия статус меняется на «В работе», фиксируется время начала, а кнопка становится «Сдать задание».
               </div>
@@ -1406,7 +1453,7 @@ export default function App() {
         )}
 
         {/* ======================================================== */}
-        {/* 5. МАТРИЦА КОМПЕТЕНЦИЙ ИЗ БАЗЫ ДАННЫХ                    */}
+        {/* 5. МАТРИЦА КОМПЕТЕНЦИЙ (ПОЛНОЦЕННОЕ ДЕРЕВО НАВЫКОВ)       */}
         {/* ======================================================== */}
         {currentRole === 'Сотрудник' && currentTab === 'matrix' && (
           <div className="space-y-6">
@@ -1416,29 +1463,62 @@ export default function App() {
                   Матрица компетенций: {currentUser.stack}
                 </h2>
                 <p className="text-sm text-slate-500">
-                  Дерево разделов (competency_blocks) и перечень требований (competencies) из базы данных
+                  Карта профессионального развития и подтвержденные навыки для грейда {currentUser.grade}
                 </p>
               </div>
-              <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full border border-indigo-200">
-                Стек: {currentUser.stack}
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-semibold px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200">
+                  Подтверждено: {confirmedCount}
+                </span>
+                <span className="text-xs font-semibold px-3 py-1 bg-amber-50 text-amber-700 rounded-full border border-amber-200">
+                  В процессе: {inProgressCount}
+                </span>
+              </div>
             </div>
 
-          <div className="space-y-4">
-              {/* Выводим названия реальных разделов из базы данных */}
-              {(dbMatrixBlocks && dbMatrixBlocks.length > 0 ? dbMatrixBlocks : [
-                { id: 1, name: '1. Архитектура и компоненты приложений' },
-                { id: 2, name: '2. Управление состоянием и потоки данных' },
-                { id: 3, name: '3. Сетевой слой и локальное хранилище' }
-              ]).map((block) => (
-                <div key={block.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
-                    <h3 className="text-base font-bold text-slate-800">{block.name}</h3>
+            <div className="space-y-4">
+              {employeeMatrix.map((block) => (
+                <div key={block.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
+                      <h3 className="text-sm font-bold text-slate-900">{block.name}</h3>
+                    </div>
+                    <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                      {block.competencies.length} навыка
+                    </span>
                   </div>
-                  <span className="text-xs px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-md font-semibold">
-                    Раздел матрицы (БД)
-                  </span>
+
+                  <div className="divide-y divide-slate-100">
+                    {block.competencies.map((comp) => (
+                      <div key={comp.id} className="px-6 py-3.5 flex items-center justify-between hover:bg-slate-50/60 transition-colors">
+                        <div className="pr-4">
+                          <p className="text-xs font-medium text-slate-800 leading-relaxed">{comp.name}</p>
+                          <span className="inline-block mt-1 text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-600 rounded">
+                            Грейд: {comp.grade}
+                          </span>
+                        </div>
+                        <div className="flex-shrink-0">
+                          {comp.status === 'confirmed' && (
+                            <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-[#e7f7ed] text-[#1e8346] flex items-center space-x-1">
+                              <span>✓</span>
+                              <span>Подтверждено</span>
+                            </span>
+                          )}
+                          {comp.status === 'in_progress' && (
+                            <span className="px-3 py-1 rounded-full text-[11px] font-semibold bg-[#fef4e5] text-[#b47113]">
+                              В процессе
+                            </span>
+                          )}
+                          {comp.status === 'not_started' && (
+                            <span className="px-3 py-1 rounded-full text-[11px] font-medium bg-[#f0f2f5] text-slate-500">
+                              Не оценено
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
