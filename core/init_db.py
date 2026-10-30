@@ -1,5 +1,5 @@
-import os
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.models.base import User, Role, UserRole
 from core.security import hash_password
 
@@ -12,8 +12,8 @@ def init_first_admin(db: Session) -> None:
     3. Если админа нет — берет email/пароль из .env, создает пользователя и выдает роль.
     4. Если админ уже есть — ничего не делает (защита от перезаписи).
     """
-    admin_email = os.getenv("INITIAL_ADMIN_EMAIL", "admin@webant.ru")
-    admin_password = os.getenv("INITIAL_ADMIN_PASSWORD", "admin123password")
+    admin_email = settings.initial_admin_email
+    admin_password = settings.initial_admin_password.get_secret_value()
 
     # 1. Проверяем или создаем роль "Администратор"
     admin_role = db.query(Role).filter(Role.name == "Администратор").first()
