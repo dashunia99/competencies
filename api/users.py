@@ -13,7 +13,7 @@ from core.security import (
     require_roles,
     verify_user_access,
 )
-from app.models.base import User, Role, UserRole
+from app.models.base import User, Role, UserRole, Stack
 from schemas.users import CreateUserSchema, UserSchema, UpdateUserSchema
 
 router = APIRouter(prefix="/users", tags=["Пользователи"])
@@ -53,19 +53,16 @@ def create_user(
     db.commit()
     db.refresh(new_user)
 
-    assigned_role_name = None
-    if user_data.role_name:
-        role = db.query(Role).filter(Role.name == user_data.role_name).first()
-        if not role:
-            role = Role(name=user_data.role_name)
-            db.add(role)
-            db.commit()
-            db.refresh(role)
+    role = db.query(Role).filter(Role.name == user_data.role_name).first()
+    if not role:
+        role = Role(name=user_data.role_name)
+        db.add(role)
+        db.flush()
 
-        user_role = UserRole(user_id=new_user.id, role_id=role.id)
-        db.add(user_role)
-        db.commit()
-        assigned_role_name = role.name
+    db.add(UserRole(user_id=new_user.id, role_id=role.id))
+    db.commit()
+    db.refresh(new_user)
+    assigned_role_name = role.name
 
     return {
         "id": new_user.id,
@@ -100,6 +97,7 @@ def get_all_users(
             "id": u.id,
             "fio": u.fio,
             "email": u.email,
+            "stack_id": u.stack_id,
             "position": u.position,
             "start_date": u.start_date,
             "role": role_name,
@@ -108,6 +106,20 @@ def get_all_users(
             "is_active": u.is_active,
         })
     return result
+
+
+@router.get(
+    "/stacks",
+    summary="Список стеков для назначения сотрудникам",
+)
+def get_stacks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("Администратор")),
+):
+    return [
+        {"id": stack.id, "name": stack.name}
+        for stack in db.query(Stack).order_by(Stack.name).all()
+    ]
 
 
 # 3. Карточка пользователя по ID (своя или для Админа/Эксперта) — COMP-17
@@ -135,6 +147,7 @@ def get_user_by_id(
         "id": user.id,
         "fio": user.fio,
         "email": user.email,
+        "stack_id": user.stack_id,
         "position": user.position,
         "start_date": user.start_date,
         "role": role_name,
@@ -168,6 +181,7 @@ def block_user(
         "id": user.id,
         "fio": user.fio,
         "email": user.email,
+        "stack_id": user.stack_id,
         "position": user.position,
         "start_date": user.start_date,
         "role": role_name,
@@ -311,6 +325,7 @@ def update_user_profile(
         "id": user.id,
         "fio": user.fio,
         "email": user.email,
+        "stack_id": user.stack_id,
         "position": user.position,
         "start_date": user.start_date,
         "role": role_name,

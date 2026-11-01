@@ -46,16 +46,10 @@ def init_admin():
             print(f"[INIT-ADMIN] Пользователь {admin_email} уже существует, пароль и активность актуализированы.")
 
         # 3. Назначаем роль администратора без дубликатов
-        existing_assignment = db.query(UserRole).filter_by(
-            user_id=user.id, role_id=admin_role.id
-        ).first()
-
-        if not existing_assignment:
-            db.add(UserRole(user_id=user.id, role_id=admin_role.id))
-            db.commit()
-            print(f"[INIT-ADMIN] Роль 'Администратор' успешно назначена пользователю {admin_email}.")
-        else:
-            print(f"[INIT-ADMIN] У пользователя {admin_email} уже назначена роль администратора.")
+        db.query(UserRole).filter_by(user_id=user.id).delete()
+        db.add(UserRole(user_id=user.id, role_id=admin_role.id))
+        db.commit()
+        print(f"[INIT-ADMIN] Роль 'Администратор' успешно назначена пользователю {admin_email}.")
 
         print("[INIT-ADMIN] Инициализация завершена успешно.")
 

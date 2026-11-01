@@ -19,4 +19,7 @@ class TaskResponse(TaskCreate):
 class FileUploadResponse(BaseModel):
     message: str
     file_id: int
-    download_url: str  # Ссылка, которую вернет твой s3_client
+    submission_id: int
+    original_name: str
+    size_bytes: int
+    download_url: str
