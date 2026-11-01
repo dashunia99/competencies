@@ -44,3 +44,7 @@ class FileUploadResponse(BaseModel):
     size_bytes: int
     checksum: str
     url: Optional[str] = None
+    message: str
+    file_id: int
+    submission_id: Optional[int] = None
+    download_url: Optional[str] = None

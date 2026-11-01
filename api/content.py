@@ -83,9 +83,17 @@ async def upload_file(
     file: UploadFile = File(...),
     entity_type: str = Form("submission"),
     entity_id: Optional[int] = Form(None),
+    submission_id: Optional[int] = Form(None, gt=0, le=2_147_483_647),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if entity_id is not None and submission_id is not None and entity_id != submission_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ID сдачи указаны неоднозначно")
+    if entity_id is None:
+        entity_id = submission_id
+    if entity_id is not None and not 1 <= entity_id <= 2_147_483_647:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Некорректный ID связанной сущности")
+
     # 1. Проверка типа сущности
     if entity_type not in ALLOWED_ENTITY_TYPES:
         raise HTTPException(
@@ -97,29 +105,29 @@ async def upload_file(
     user_roles = [r.name for r in current_user.roles]
     is_privileged = "Эксперт" in user_roles or "Администратор" in user_roles
 
+    if entity_type == "submission" and not is_privileged and "Сотрудник" not in user_roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Недостаточно прав для загрузки файла")
+
     if entity_type == "submission" and entity_id is not None:
         sub = db.query(Submission).filter(Submission.id == entity_id).first()
-        if not sub:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Связанная сдача не найдена")
-        if sub.user_id != current_user.id and not is_privileged:
+        if sub and sub.user_id != current_user.id and not is_privileged:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Вы не можете прикреплять файлы к чужой сдаче",
             )
 
-    elif entity_type == "material" and entity_id is not None:
-        mat = db.query(Material).filter(Material.id == entity_id).first()
-        if not mat:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Связанный материал не найден")
+    if entity_type == "material":
         if not is_privileged:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Только эксперты и администраторы могут загружать файлы к материалам",
             )
+        if entity_id is not None and not db.query(Material).filter(Material.id == entity_id).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Связанный материал не найден")
 
     # 3. Проверка расширения файла (Allowlist)
-    filename = file.filename or "file"
-    ext = filename.split(".")[-1].lower() if "." in filename else ""
+    filename = os.path.basename(file.filename or "file")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -127,24 +135,16 @@ async def upload_file(
         )
 
     # 4. Потоковое чтение чанками с подсчетом SHA-256 и контролем размера
-    size = 0
+    content = await file.read(MAX_FILE_SIZE + 1)
+    size = len(content)
+    if size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"Файл превышает максимально допустимый размер ({MAX_FILE_SIZE // (1024 * 1024)} МБ)",
+        )
+
     sha256_hash = hashlib.sha256()
-    file_buffer = io.BytesIO()
-
-    while True:
-        chunk = await file.read(1024 * 1024)  # Читаем чанками по 1 МБ
-        if not chunk:
-            break
-        size += len(chunk)
-        if size > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Файл превышает максимально допустимый размер ({MAX_FILE_SIZE // (1024 * 1024)} МБ)",
-            )
-        sha256_hash.update(chunk)
-        file_buffer.write(chunk)
-
-    file_buffer.seek(0)
+    sha256_hash.update(content)
     checksum = sha256_hash.hexdigest()
 
     # 5. Генерация уникального ключа в S3
@@ -162,24 +162,20 @@ async def upload_file(
     if s3_service is not None:
         try:
             content_type = file.content_type or "application/octet-stream"
-            if hasattr(s3_service, "upload_fileobj"):
-                s3_service.upload_fileobj(file_buffer, unique_key, content_type=content_type)
-            elif hasattr(s3_service, "client"):
-                s3_service.client.upload_fileobj(
-                    file_buffer,
-                    bucket,
-                    unique_key,
-                    ExtraArgs={"ContentType": content_type},
+            if not s3_service.upload_file(io.BytesIO(content), unique_key, content_type):
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail="Не удалось загрузить файл в S3",
                 )
-            elif hasattr(s3_service, "upload_file"):
-                s3_service.upload_file(file_buffer, unique_key)
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Ошибка сохранения файла в S3-хранилище: {str(e)}",
             )
     else:
-        print(f"⚠️ [S3 Info] Файл зарегистрирован: {unique_key}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="S3-хранилище недоступно")
 
     # 7. Сохранение метаданных в PostgreSQL (uploaded_by берется СТРОГО из JWT токена!)
     db_file = FileModel(
@@ -205,36 +201,20 @@ async def upload_file(
     db.commit()
     db.refresh(db_file)
 
-    # 8. Генерация временной ссылки для скачивания (pre-signed URL)
-    download_url = None
-    if s3_service is not None:
-        try:
-            if hasattr(s3_service, "get_presigned_url"):
-                download_url = s3_service.get_presigned_url(unique_key)
-            elif hasattr(s3_service, "generate_presigned_url"):
-                download_url = s3_service.generate_presigned_url(unique_key)
-            elif hasattr(s3_service, "client"):
-                download_url = s3_service.client.generate_presigned_url(
-                    ClientMethod="get_object",
-                    Params={"Bucket": bucket, "Key": unique_key},
-                    ExpiresIn=900,
-                )
-        except Exception:
-            download_url = None
-
-    return {
-        "id": db_file.id,
-        "object_key": db_file.object_key,
-        "original_name": db_file.original_name,
-        "size_bytes": db_file.size_bytes,
-        "checksum": db_file.checksum,
-        "url": download_url,
-    }
+    return FileUploadResponse(
+        id=db_file.id,
+        object_key=db_file.object_key,
+        message="Файл успешно загружен",
+        file_id=db_file.id,
+        submission_id=entity_id,
+        original_name=db_file.original_name,
+        size_bytes=db_file.size_bytes,
+        checksum=db_file.checksum,
+        url=None,
+        download_url=None,
+    )
 
 
-# ==========================================
-# 3. ПОЛУЧЕНИЕ / СКАЧИВАНИЕ ФАЙЛА
-# ==========================================
 @router.get(
     "/files/{file_id}/download",
     summary="Получить временную ссылку на скачивание файла",
@@ -248,32 +228,70 @@ def download_file(
     if not db_file or db_file.status == "deleted":
         raise HTTPException(status_code=404, detail="Файл не найден")
 
-    # Проверка прав: сотрудник может скачать только свои файлы или материалы
-    user_roles = [r.name for r in current_user.roles]
-    is_privileged = "Эксперт" in user_roles or "Администратор" in user_roles
-
-    if not is_privileged and db_file.entity_type == "submission" and db_file.uploaded_by != current_user.id:
+    user_roles = {role.name for role in current_user.roles}
+    is_privileged = bool(user_roles.intersection({"Эксперт", "Администратор"}))
+    if db_file.entity_type == "submission" and db_file.uploaded_by != current_user.id and not is_privileged:
         raise HTTPException(status_code=403, detail="Доступ к чужому файлу запрещен")
 
-    bucket = db_file.bucket or os.getenv("S3_BUCKET_NAME", "webant-skills")
-    download_url = None
-
-    if s3_service is not None:
-        try:
-            if hasattr(s3_service, "get_presigned_url"):
-                download_url = s3_service.get_presigned_url(db_file.object_key)
-            elif hasattr(s3_service, "generate_presigned_url"):
-                download_url = s3_service.generate_presigned_url(db_file.object_key)
-            elif hasattr(s3_service, "client"):
-                download_url = s3_service.client.generate_presigned_url(
-                    ClientMethod="get_object",
-                    Params={"Bucket": bucket, "Key": db_file.object_key},
-                    ExpiresIn=900,
-                )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Ошибка генерации ссылки S3: {str(e)}")
-
+    if s3_service is None:
+        raise HTTPException(status_code=503, detail="S3-хранилище недоступно")
+    download_url = s3_service.get_presigned_url(db_file.object_key)
     if not download_url:
-        raise HTTPException(status_code=503, detail="Хранилище S3 временно недоступно для выдачи ссылки")
-
+        raise HTTPException(status_code=503, detail="Не удалось создать ссылку на файл")
     return RedirectResponse(url=download_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@router.get("/files/{file_id}/download-url")
+def get_file_download_url(
+    file_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db_file = (
+        db.query(FileModel)
+        .filter(FileModel.id == file_id, FileModel.status == "uploaded")
+        .first()
+    )
+    if not db_file or db_file.entity_type != "submission":
+        raise HTTPException(status_code=404, detail="Файл не найден")
+
+    roles = {role.name for role in current_user.roles}
+    if db_file.uploaded_by != current_user.id and not roles.intersection({"Эксперт", "Администратор"}):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому файлу")
+
+    if s3_service is None:
+        raise HTTPException(status_code=503, detail="S3-хранилище недоступно")
+    download_url = s3_service.get_presigned_url(db_file.object_key)
+    if not download_url:
+        raise HTTPException(status_code=502, detail="Не удалось создать ссылку на файл")
+
+    return {"download_url": download_url}
+
+
+@router.get("/submission-files")
+def get_submission_files(
+    db: Session = Depends(get_db),
+    reviewer: User = Depends(require_roles("Эксперт", "Администратор")),
+):
+    files = (
+        db.query(FileModel, User)
+        .join(User, FileModel.uploaded_by == User.id)
+        .filter(
+            FileModel.entity_type == "submission",
+            FileModel.entity_id.isnot(None),
+            FileModel.status == "uploaded",
+        )
+        .order_by(FileModel.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": file.id,
+            "submission_id": file.entity_id,
+            "original_name": file.original_name,
+            "size_bytes": file.size_bytes,
+            "uploaded_by": user.fio,
+            "uploaded_at": file.created_at,
+        }
+        for file, user in files
+    ]

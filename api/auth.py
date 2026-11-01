@@ -13,6 +13,7 @@ from core.security import (
     verify_password,
 )
 from app.models.base import User
+from app.roles import ROLE_NAMES
 from schemas.auth import LoginSchema, TokenSchema
 from schemas.users import UserMeSchema
 
@@ -56,6 +57,13 @@ def login(login_data: LoginSchema, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Пользователь заблокирован",
+        )
+
+    role_names = [role.name for role in user.roles]
+    if len(role_names) != 1 or role_names[0] not in ROLE_NAMES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Для учетной записи должна быть назначена ровно одна допустимая роль",
         )
 
     # 4. Генерируем оба токена
@@ -137,6 +145,11 @@ def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
 )
 def get_me(current_user: User = Depends(get_current_user)):
     role_name = current_user.roles[0].name if current_user.roles else None
+    if len(current_user.roles) != 1 or role_name not in ROLE_NAMES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Для учетной записи должна быть назначена ровно одна допустимая роль",
+        )
     stack_name = current_user.stack.name if current_user.stack else None
     grade_name = current_user.grade.name if current_user.grade else None
 
@@ -144,6 +157,7 @@ def get_me(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "fio": current_user.fio,
         "email": current_user.email,
+        "stack_id": current_user.stack_id,
         "position": current_user.position,
         "start_date": current_user.start_date,
         "role": role_name,
