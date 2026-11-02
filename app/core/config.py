@@ -7,6 +7,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: str
     jwt_secret_key: SecretStr = Field(min_length=32)
+    initial_admin_email: str
+    initial_admin_password: SecretStr = Field(min_length=12)
+    cors_allowed_origins: str = ""
 
     S3_ENDPOINT_URL: str = "http://localhost:9000"
     S3_PUBLIC_ENDPOINT_URL: str | None = None
@@ -25,6 +28,14 @@ class Settings(BaseSettings):
         if value.startswith("postgresql://"):
             return value.replace("postgresql://", "postgresql+psycopg://", 1)
         return value
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[2] / ".env",
