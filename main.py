@@ -1,12 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.database import SessionLocal, get_db
+from core.database import engine, SessionLocal, get_db
+from app.models.base import Base
 from core.init_db import init_first_admin
-from app.core.config import settings
 
 from api.auth import router as auth_router
 from api.users import router as users_router
@@ -16,6 +15,10 @@ from api.submissions import router as submissions_router
 from api.competencies import router as competencies_router
 from api.matrices import router as matrices_router
 from api.content import router as content_router
+
+# Создаем таблицы в БД (если их еще нет)
+Base.metadata.create_all(bind=engine)
+
 
 # Жизненный цикл приложения (Lifespan)
 @asynccontextmanager
@@ -48,15 +51,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-if settings.cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
 # Подключаем роутеры
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
@@ -76,13 +70,13 @@ def health_check(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         db_status = "connected"
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"database unavailable: {e}",
-        ) from e
+        db_status = f"unhealthy: {str(e)}"
 
     return {
-        "status": "ok",
+        "status": "ok" if db_status == "connected" else "degraded",
         "database": db_status,
     }
+
+def health_check():
+    return {"status": "ok"}
 

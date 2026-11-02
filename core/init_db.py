@@ -1,5 +1,5 @@
+import os
 from sqlalchemy.orm import Session
-from app.core.config import settings
 from app.models.base import User, Role, UserRole
 from core.security import hash_password
 

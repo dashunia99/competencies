@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, EmailStr
 
 
@@ -12,14 +12,15 @@ class CreateUserSchema(BaseModel):
     start_date: Optional[date] = None   # Дата начала работы (формат YYYY-MM-DD)
     stack_id: Optional[int] = None      # ID стека
     grade_id: Optional[int] = None      # ID грейда
-    role_name: Optional[str] = None     # Роль (Сотрудник, Эксперт, Администратор)
+    role_name: Literal["Сотрудник", "Эксперт", "Администратор"]
 
 
 # 2. Отдаем расширенный профиль по ТЗ COMP-17
 class UserSchema(BaseModel):
     id: int
     fio: str
-    email: EmailStr
+    email: str
+    stack_id: Optional[int] = None
     position: Optional[str] = None      # Должность
     start_date: Optional[date] = None   # Дата начала работы
     role: Optional[str] = None
@@ -40,4 +41,4 @@ class UpdateUserSchema(BaseModel):
     start_date: Optional[date] = None
     stack_id: Optional[int] = None      # Изменение направления
     grade_id: Optional[int] = None      # Изменение грейда
-    role_name: Optional[str] = None     # Изменение роли
+    role_name: Optional[Literal["Сотрудник", "Эксперт", "Администратор"]] = None
