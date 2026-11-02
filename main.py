@@ -1,5 +1,8 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI, Depends
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -79,4 +82,10 @@ def health_check(db: Session = Depends(get_db)):
 
 def health_check():
     return {"status": "ok"}
+
+
+# StaticFiles is mounted last so API and documentation routes keep priority.
+frontend_dist = Path(__file__).resolve().parent / "frontend" / "dist"
+if frontend_dist.is_dir():
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
