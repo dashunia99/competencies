@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from core.security import get_current_user, require_roles
+from app.core.database import get_db
+from app.core.security import get_current_user, require_roles
 from app.models.base import (
     User,
     Task,
@@ -16,7 +16,7 @@ from app.models.base import (
     Material,
     UserMaterialProgress,
 )
-from schemas.submissions import SubmitAssignmentSchema, ReviewSubmissionSchema
+from app.schemas.submissions import SubmitAssignmentSchema, ReviewSubmissionSchema
 
 router = APIRouter(prefix="", tags=["Сдача и проверка заданий"])
 

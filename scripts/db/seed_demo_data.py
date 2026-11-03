@@ -9,8 +9,8 @@ from app.models.base import (
     Base, User, Role, UserRole, Grade, Stack,
     LearningProgram, CompetencyBlock, Competency, Material, Task
 )
-from core.database import engine, SessionLocal
-from core.security import hash_password
+from app.core.database import engine, SessionLocal
+from app.core.security import hash_password
 
 print("1. Пересоздаем таблицы со всеми новыми полями...")
 Base.metadata.drop_all(bind=engine)

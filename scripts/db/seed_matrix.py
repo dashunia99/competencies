@@ -7,7 +7,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MATRIX_DIR = PROJECT_ROOT / "data" / "competency_matrices"
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from core.database import SessionLocal
+from app.core.database import SessionLocal
 from app.models.base import Stack, Competency, CompetencyBlock
 
 

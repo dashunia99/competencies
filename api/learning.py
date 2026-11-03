@@ -2,8 +2,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from core.security import get_current_user, verify_user_access
+from app.core.database import get_db
+from app.core.security import get_current_user, verify_user_access
 from app.models.base import (
     User,
     LearningProgram,

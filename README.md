@@ -403,9 +403,8 @@ docker compose run --rm --entrypoint /bin/sh minio-init -c 'mc alias set local h
 |---|---|
 | `api/` | Маршруты FastAPI |
 | `app/models/` | SQLAlchemy-модели |
-| `app/core/` | Конфигурация и S3-клиент |
-| `core/` | База данных и безопасность |
-| `schemas/` | Pydantic-схемы API |
+| `app/core/` | Конфигурация, база данных, безопасность и S3-клиент |
+| `app/schemas/` | Pydantic-схемы API |
 | `migrations/` | Миграции Alembic |
 | `scripts/` | Создание и импорт backup |
 | `Dockerfile` | Образ FastAPI |
