@@ -227,7 +227,7 @@ docker compose exec api alembic upgrade head
 docker compose exec api alembic current
 ```
 
-SQL-файлы из каталога `bd/` не следует применять к Docker-базе: они дублируют Alembic и могут не соответствовать текущей модели.
+SQL-файлы из каталога `docs/legacy-db/` не следует применять к Docker-базе: они дублируют Alembic и могут не соответствовать текущей модели.
 
 `scripts/db/seed_demo_data.py` удаляет всю схему `public`, включая данные и таблицу состояния Alembic. Его нельзя запускать в окружении с нужными данными.
 
