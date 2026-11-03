@@ -187,7 +187,9 @@ docker compose exec api python scripts/db/seed_matrix.py
 ## Проверки перед коммитом
 
 ```powershell
-# Python
+# Python и интеграционные тесты backend
+.\.venv\Scripts\python.exe -m pip install --requirement requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\python.exe -m compileall -q app api migrations scripts main.py
 .\.venv\Scripts\python.exe -m alembic heads
 
