@@ -2,8 +2,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from core.security import get_current_user, require_roles
+from app.core.database import get_db
+from app.core.security import get_current_user, require_roles
 from app.models.base import CompetencyBlock, Competency, Stack, User
 from app.schemas.matrices import (
     CompetencyBlockCreate,

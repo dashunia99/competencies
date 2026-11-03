@@ -1,6 +1,6 @@
 # React + Vite
 
-Production-чеклист и требования безопасности: [PRODUCTION.md](PRODUCTION.md).
+Production-чеклист и требования безопасности: [production-review.md](../docs/production-review.md).
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

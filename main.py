@@ -6,9 +6,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.database import engine, SessionLocal, get_db
+from app.core.database import engine, SessionLocal, get_db
 from app.models.base import Base
-from core.init_db import init_first_admin
+from app.core.init_db import init_first_admin
 
 from api.auth import router as auth_router
 from api.users import router as users_router

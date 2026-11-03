@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.database import SessionLocal
-from core.security import hash_password
+from app.core.database import SessionLocal
+from app.core.security import hash_password
 from app.models.base import Role, User, UserRole
 from app.roles import ROLE_NAMES
 

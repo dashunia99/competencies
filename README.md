@@ -1,99 +1,29 @@
 # Система управления компетенциями
 
-Backend-сервис для управления компетенциями и обучением сотрудников. API работает на FastAPI, данные хранятся в PostgreSQL, файлы — в S3-совместимом MinIO.
+Веб-приложение для управления сотрудниками, компетенциями, программами обучения, заданиями и проверкой работ.
 
-Проект запускается локально через Docker Compose. PostgreSQL и MinIO используют постоянные Docker volumes, поэтому обычная остановка контейнеров не удаляет данные. Для переноса состояния на другой компьютер предусмотрены ZIP-бэкапы.
+- Backend: FastAPI, SQLAlchemy, Alembic и PostgreSQL.
+- Frontend: React и Vite.
+- Файлы: S3-совместимое хранилище (MinIO локально, Railway Bucket в production).
+- Авторизация: JWT и роли «Сотрудник», «Эксперт», «Администратор».
 
-## Состав окружения
+Production Docker-образ собирает React и раздаёт его через FastAPI. После запуска интерфейс и API доступны на одном origin:
 
-| Сервис | Назначение | Локальный адрес |
-|---|---|---|
-| `api` | FastAPI и Alembic | `http://localhost:8000` |
-| `postgres` | PostgreSQL 16 | `localhost:5432` |
-| `minio` | S3 API | `http://localhost:9000` |
-| `minio` | Web Console | `http://localhost:9001` |
-| `minio-init` | Однократное создание bucket | Публичного порта нет |
+```text
+http://localhost:8000/         → React
+http://localhost:8000/api/v1/  → API
+http://localhost:8000/docs     → Swagger
+```
 
-Документация API доступна по адресу `http://localhost:8000/docs`, проверка состояния — `http://localhost:8000/api/v1/health`.
+## Быстрый локальный запуск
 
-## Требования
-
-Для запуска необходимы:
+### Требования
 
 - Git;
-- Docker Desktop с поддержкой Docker Compose;
-- PowerShell 7 или Windows PowerShell 5.1;
-- не менее 2 ГБ свободной оперативной памяти;
-- свободные локальные порты `5432`, `8000`, `9000` и `9001`.
+- Docker Desktop с Docker Compose;
+- свободные порты `5432`, `8000`, `9000` и `9001`.
 
-Для временного публичного доступа дополнительно потребуется `cloudflared`. Покупать домен для Quick Tunnel не нужно.
-
-### Установка Docker Desktop
-
-На Windows Docker Desktop можно установить через `winget`:
-
-```powershell
-winget install --exact --id Docker.DockerDesktop
-```
-
-После установки перезагрузите Windows, если установщик этого потребует, запустите Docker Desktop и дождитесь запуска Docker Engine. Для Docker Desktop должна быть включена аппаратная виртуализация; обычно используется backend WSL 2.
-
-Проверьте установку в новом окне PowerShell:
-
-```powershell
-docker --version
-docker compose version
-docker run --rm hello-world
-```
-
-Если команда `docker` не найдена, полностью закройте и заново откройте терминал. Подробные требования и альтернативный установщик приведены в [официальной инструкции Docker Desktop для Windows](https://docs.docker.com/desktop/setup/install/windows-install/).
-
-### Установка cloudflared
-
-Этот шаг нужен только для временного доступа к локальному API через интернет:
-
-```powershell
-winget install --exact --id Cloudflare.cloudflared
-```
-
-Откройте новое окно PowerShell и проверьте установку:
-
-```powershell
-cloudflared --version
-```
-
-Quick Tunnel работает без аккаунта Cloudflare и без собственного домена. Терминал с `cloudflared` необходимо оставлять открытым всё время публичного доступа.
-
-### Проверка локальных портов
-
-Перед первым запуском проверьте, что необходимые порты не заняты:
-
-```powershell
-5432, 8000, 9000, 9001 | ForEach-Object {
-    $port = $_
-    $connection = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-
-    if ($connection) {
-        "Порт $port занят процессом PID $($connection[0].OwningProcess)"
-    } else {
-        "Порт $port свободен"
-    }
-}
-```
-
-Если порт занят, узнать имя процесса можно по выведенному PID:
-
-```powershell
-Get-Process -Id <PID>
-```
-
-Если порт занимает другой Docker-контейнер, найдите его командой:
-
-```powershell
-docker ps --format "table {{.Names}}\t{{.Ports}}"
-```
-
-## Первый запуск
+Python и Node.js отдельно устанавливать не нужно: сборка выполняется в Docker.
 
 ### 1. Получить проект
 
@@ -102,340 +32,219 @@ git clone <repository-url>
 cd competencies
 ```
 
-### 2. Создать `.env`
+### 2. Создать локальные переменные
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Откройте `.env` и обязательно замените:
+Перед запуском замените в `.env` как минимум:
 
 ```env
-POSTGRES_PASSWORD=change-this-database-password
-MINIO_ROOT_PASSWORD=change-this-minio-password
-AWS_SECRET_ACCESS_KEY=change-this-minio-password
-JWT_SECRET_KEY=replace-this-with-a-random-secret-of-at-least-32-characters
+POSTGRES_PASSWORD=<пароль локальной PostgreSQL>
+DATABASE_URL=postgresql+psycopg://app:<тот-же-пароль>@postgres:5432/webant_skills
+
+JWT_SECRET_KEY=<случайная строка длиной не менее 32 символов>
+INITIAL_ADMIN_EMAIL=<email администратора>
+INITIAL_ADMIN_PASSWORD=<пароль администратора длиной не менее 12 символов>
+
+MINIO_ROOT_PASSWORD=<пароль локального MinIO>
+AWS_SECRET_ACCESS_KEY=<тот-же-пароль MinIO>
 ```
 
-`MINIO_ROOT_PASSWORD` и `AWS_SECRET_ACCESS_KEY` должны совпадать. `POSTGRES_PASSWORD` в `DATABASE_URL` также должен совпадать с `POSTGRES_PASSWORD`.
-
-JWT-секрет можно сгенерировать командой:
+Сгенерировать JWT-секрет:
 
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Значения из `.env` не нужно добавлять в Git. Файл уже исключён через `.gitignore` и `.dockerignore`.
+`MINIO_ROOT_PASSWORD` и `AWS_SECRET_ACCESS_KEY` должны совпадать. `.env` исключён из Git и Docker build context.
 
-### 3. Собрать и запустить сервисы
+### 3. Собрать и запустить
 
 ```powershell
 docker compose up --build -d
-```
-
-При первом запуске Docker Compose:
-
-1. создаёт volumes для PostgreSQL и MinIO;
-2. ждёт готовности PostgreSQL и MinIO;
-3. создаёт bucket из `S3_BUCKET_NAME`;
-4. выполняет `alembic upgrade head`;
-5. запускает Uvicorn и FastAPI.
-
-Посмотреть состояние:
-
-```powershell
 docker compose ps
 ```
 
-Посмотреть логи API:
+При запуске Compose:
+
+1. поднимает PostgreSQL и MinIO;
+2. создаёт S3 bucket;
+3. выполняет `alembic upgrade head`;
+4. запускает FastAPI и собранный React;
+5. создаёт первого администратора, если администратора ещё нет.
+
+### 4. Проверить
+
+- интерфейс: <http://localhost:8000/>;
+- healthcheck: <http://localhost:8000/api/v1/health>;
+- Swagger: <http://localhost:8000/docs>;
+- MinIO Console: <http://localhost:9001>.
+
+Проверка из PowerShell:
 
 ```powershell
-docker compose logs -f api
+Invoke-RestMethod http://localhost:8000/api/v1/health
+docker compose logs --tail 100 api
 ```
 
-### 4. Проверить запуск
+Ожидаемый healthcheck:
 
-Откройте:
+```json
+{"status":"ok","database":"connected"}
+```
 
-- `http://localhost:8000/api/v1/health`;
-- `http://localhost:8000/docs`;
-- `http://localhost:9001` для MinIO Console.
+Для входа используйте `INITIAL_ADMIN_EMAIL` и `INITIAL_ADMIN_PASSWORD`, указанные при первом запуске. После создания администратора изменение этих переменных не меняет пароль существующей учётной записи.
 
-Для входа в MinIO Console используются `MINIO_ROOT_USER` и `MINIO_ROOT_PASSWORD` из `.env`.
+## Локальные сервисы
 
-Файлы, добавленные сотрудником при отправке задания, загружаются в bucket MinIO
-(до 50 МБ на файл). Доступ к загрузке требует авторизации сотрудника, а эксперт
-может открыть загруженные файлы в кабинете и получить свежую временную ссылку.
+| Сервис | Назначение | Адрес |
+|---|---|---|
+| `api` | React, FastAPI и Alembic | `http://localhost:8000` |
+| `postgres` | PostgreSQL 16 | `127.0.0.1:5432` |
+| `minio` | S3 API | `http://localhost:9000` |
+| `minio` | Web Console | `http://localhost:9001` |
+| `minio-init` | Однократное создание bucket | публичного порта нет |
 
-### Тестовые учетные записи
+PostgreSQL и MinIO используют Docker volumes. Команда `docker compose down` сохраняет данные.
 
-Миграция базы данных добавляет роли «Сотрудник», «Эксперт» и «Администратор».
-Единственная учётная запись администратора задаётся через `INITIAL_ADMIN_EMAIL`
-и `INITIAL_ADMIN_PASSWORD` в `.env`. Скрипт ниже создаёт тестовые учётные записи
-сотрудника и эксперта и выводит пароль, если учётная запись создаётся впервые:
+## Управление окружением
 
 ```powershell
+# Запустить ранее собранные контейнеры
+docker compose up -d
+
+# Пересобрать приложение после изменения кода
 docker compose up --build -d api
-docker compose exec api python scripts/seed_test_accounts.py
-```
 
-Адреса тестовых учётных записей используют домен `@webant.ru`. Скрипт не меняет
-пароли уже существующих пользователей. Сохраните выведенные данные для входа
-в интерфейс.
+# Посмотреть логи
+docker compose logs -f api
 
-## Управление контейнерами
-
-Остановить контейнеры, сохранив данные:
-
-```powershell
+# Остановить контейнеры, сохранив данные
 docker compose down
 ```
 
-Запустить их снова:
-
-```powershell
-docker compose up -d
-```
-
-Пересобрать API после изменения Python-кода или зависимостей:
-
-```powershell
-docker compose up --build -d api
-```
-
-Полностью удалить контейнеры вместе с PostgreSQL и файлами MinIO:
+Полное удаление локальных данных:
 
 ```powershell
 docker compose down -v
 ```
 
-Команда с `-v` необратимо удаляет локальные данные. Перед её использованием создайте backup.
+`-v` удаляет PostgreSQL и файлы MinIO без возможности восстановления. Перед этим создайте backup.
 
-## База данных и миграции
+## Миграции базы данных
 
-Структура базы управляется только Alembic. Миграции автоматически применяются при запуске контейнера `api`.
-
-Запустить их вручную:
+Схема управляется Alembic. При обычном запуске Compose миграции применяются автоматически.
 
 ```powershell
-docker compose exec api alembic upgrade head
-```
-
-Показать текущую ревизию:
-
-```powershell
+# Текущая ревизия
 docker compose exec api alembic current
+
+# Применить миграции вручную
+docker compose exec api alembic upgrade head
+
+# Проверить единственный актуальный head
+docker compose exec api alembic heads
 ```
 
-SQL-файлы из каталога `bd/` не следует применять к Docker-базе: они дублируют Alembic и могут не соответствовать текущей модели.
+Файлы из `docs/legacy-db/` сохранены только как история и не должны применяться к актуальной БД.
 
-`seed_demo_data.py` удаляет всю схему `public`, включая данные и таблицу состояния Alembic. Его нельзя запускать в окружении с нужными данными.
+## Данные для разработки
 
-Импорт матриц из Excel выполняется отдельно:
+Создать тестовые учётные записи сотрудника и эксперта:
 
 ```powershell
-docker compose exec api python seed_matrix.py
+docker compose exec api python scripts/seed_test_accounts.py
 ```
 
-При повторном запуске `seed_matrix.py` удаляет и заново создаёт компетенции стеков Android и Flutter.
-
-## Временный публичный доступ
-
-### Только API
-
-После локального запуска выполните в отдельном терминале:
+Импортировать Android- и Flutter-матрицы из `data/competency_matrices/`:
 
 ```powershell
-cloudflared tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:8000
+docker compose exec api python scripts/db/seed_matrix.py
 ```
 
-Команда напечатает временный HTTPS-адрес вида:
+Повторный импорт матриц заменяет компетенции соответствующих стеков. Остальные скрипты описаны в `scripts/db/README.md`; `seed_demo_data.py` полностью пересоздаёт таблицы и допустим только для одноразовой локальной БД.
 
-```text
-https://random-name.trycloudflare.com
-```
+## Backup и восстановление
 
-Дождитесь сообщения `Registered tunnel connection`, затем откройте выданный адрес с суффиксом `/docs`. Адрес работает, пока запущены компьютер, Docker Compose и процесс `cloudflared`. После остановки tunnel адрес перестаёт работать, а при следующем запуске создаётся новый.
-
-### API и presigned-ссылки на файлы
-
-Внутри Docker API обращается к MinIO по адресу `http://minio:9000`. Этот адрес недоступен внешнему пользователю, поэтому для публичного скачивания файлов нужен второй tunnel.
-
-В первом терминале:
-
-```powershell
-cloudflared tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:9000
-```
-
-Скопируйте выданный HTTPS-адрес в `.env`:
-
-```env
-S3_PUBLIC_ENDPOINT_URL=https://random-storage-name.trycloudflare.com
-```
-
-Перезапустите API:
-
-```powershell
-docker compose up -d --force-recreate api
-```
-
-Во втором терминале откройте tunnel для API:
-
-```powershell
-cloudflared tunnel --protocol http2 --edge-ip-version 4 --url http://127.0.0.1:8000
-```
-
-MinIO Console на порту `9001` публично открывать не следует. Bucket остаётся приватным, доступ к объектам предоставляется через временные подписанные ссылки.
-
-## Создание backup
-
-PostgreSQL и MinIO должны быть запущены:
-
-```powershell
-docker compose up -d postgres minio
-```
-
-Создайте архив:
+Создать ZIP с PostgreSQL и объектами MinIO:
 
 ```powershell
 .\scripts\backup.ps1
 ```
 
-Архив появится в каталоге `backups/`:
+Архив появится в `backups/`.
 
-```text
-backups/competencies-backup-YYYYMMDD-HHMMSS.zip
-```
-
-Внутри находятся:
-
-```text
-database.dump
-objects/
-backup-info.json
-```
-
-На время создания согласованного backup скрипт останавливает API, выгружает PostgreSQL и объекты MinIO, затем снова запускает API. Пароли и `.env` в архив не включаются.
-
-Указать другой каталог для архива:
-
-```powershell
-.\scripts\backup.ps1 -OutputDirectory "D:\project-backups"
-```
-
-## Импорт существующего backup
-
-Если имеется ZIP-архив backup, сначала подготовьте проект и `.env`, но не запускайте полный стек вручную. Имя bucket `S3_BUCKET_NAME` должно соответствовать окружению, из которого были сохранены данные.
-
-Запустите восстановление:
+Восстановить архив:
 
 ```powershell
 .\scripts\restore.ps1 -BackupPath "C:\path\to\competencies-backup.zip"
 ```
 
-Скрипт автоматически:
+Восстановление заменяет содержимое локальной PostgreSQL и загружает объекты в MinIO.
 
-1. распакует и проверит архив;
-2. запустит PostgreSQL и MinIO;
-3. создаст bucket, если он отсутствует;
-4. восстановит PostgreSQL;
-5. загрузит файлы в MinIO;
-6. соберёт и запустит API;
-7. применит миграции через стандартную команду запуска API.
+## Проверки перед коммитом
 
-После восстановления проверьте:
+```powershell
+# Python
+.\.venv\Scripts\python.exe -m compileall -q app api migrations scripts main.py
+.\.venv\Scripts\python.exe -m alembic heads
+
+# Frontend
+Set-Location frontend
+npm install
+npm run lint
+npm run build
+Set-Location ..
+
+# Docker Compose
+docker compose config --quiet
+```
+
+Локальная `.venv` нужна только для разработки без контейнера. Для обычного Docker-запуска она не требуется.
+
+## Структура
+
+```text
+api/                         FastAPI-маршруты
+app/core/                    конфигурация, БД, JWT и S3
+app/models/                  SQLAlchemy-модели
+app/schemas/                 Pydantic-схемы API
+app/services/                сервисный слой
+data/competency_matrices/    исходные Excel-матрицы
+docs/                        deployment и production-документация
+frontend/                    React-приложение
+migrations/                  Alembic-миграции
+scripts/                     backup, restore и служебные команды
+main.py                      точка входа FastAPI
+```
+
+## Railway
+
+Production-развёртывание описано в [docs/deployment/railway.md](docs/deployment/railway.md).
+
+## Частые проблемы
+
+### API не запускается
 
 ```powershell
 docker compose ps
-docker compose logs api
-```
-
-Затем откройте `http://localhost:8000/docs` и проверьте доступ к данным и файлам.
-
-Восстановление перезаписывает объекты с совпадающими ключами и объекты базы из dump. Перед импортом в окружение с нужными данными рекомендуется сначала создать отдельный backup.
-
-## Запуск на другом компьютере
-
-Без backup последовательность выглядит так:
-
-```powershell
-git clone <repository-url>
-cd competencies
-Copy-Item .env.example .env
-# Настроить пароли и JWT_SECRET_KEY в .env
-docker compose up --build -d
-```
-
-Будет создана пустая база с актуальной структурой и пустой bucket.
-
-При наличии backup:
-
-```powershell
-git clone <repository-url>
-cd competencies
-Copy-Item .env.example .env
-# Настроить .env
-.\scripts\restore.ps1 -BackupPath "C:\path\to\competencies-backup.zip"
-```
-
-## Полезные команды
-
-```powershell
-# Все логи
-docker compose logs -f
-
-# Перезапуск API
-docker compose restart api
-
-# Выполнение команды Python внутри API
-docker compose exec api python check_db.py
-
-# Открыть psql
-docker compose exec postgres psql -U app -d webant_skills
-
-# Список объектов bucket
-docker compose run --rm --entrypoint /bin/sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" && mc ls --recursive "local/$S3_BUCKET_NAME"'
-```
-
-## Структура проекта
-
-| Путь | Содержание |
-|---|---|
-| `api/` | Маршруты FastAPI |
-| `app/models/` | SQLAlchemy-модели |
-| `app/core/` | Конфигурация и S3-клиент |
-| `core/` | База данных и безопасность |
-| `schemas/` | Pydantic-схемы API |
-| `migrations/` | Миграции Alembic |
-| `scripts/` | Создание и импорт backup |
-| `Dockerfile` | Образ FastAPI |
-| `docker-compose.yml` | Локальный стек приложения |
-
-## Диагностика
-
-Если API не запускается:
-
-```powershell
 docker compose logs postgres
-docker compose logs minio
 docker compose logs minio-init
 docker compose logs api
 ```
 
-Если Quick Tunnel показывает `502 Bad Gateway` или Cloudflare `Error 1033`:
+Проверьте наличие всех обязательных переменных из `.env.example` и совпадение паролей в связанных настройках.
 
-1. убедитесь, что `http://127.0.0.1:8000/api/v1/health` открывается локально;
-2. не закрывайте терминал с `cloudflared`;
-3. дождитесь строки `Registered tunnel connection`;
-4. используйте новый адрес, выданный при текущем запуске, а не URL предыдущего tunnel;
-5. разрешите `cloudflared.exe` в брандмауэре Windows и временно отключите VPN или прокси, если соединение продолжает обрываться.
+### Изменили реквизиты PostgreSQL после первого запуска
 
-Проверить API из PowerShell:
+PostgreSQL volume продолжает использовать реквизиты, с которыми был создан. Верните старые значения либо сначала создайте backup, затем пересоздайте volumes.
+
+### Порт занят
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -In 5432,8000,9000,9001
 ```
 
-Если порт занят, остановите использующий его процесс либо измените левую часть соответствующего `ports` в `docker-compose.yml`.
-
-Если были изменены `POSTGRES_DB`, `POSTGRES_USER` или `POSTGRES_PASSWORD` после первого запуска, существующий PostgreSQL volume продолжит использовать старые реквизиты. Создайте backup, удалите volumes и запустите окружение заново либо верните прежние значения.
+Остановите конфликтующий процесс или измените левую часть соответствующего `ports` в `docker-compose.yml`.

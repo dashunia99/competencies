@@ -1,12 +1,12 @@
-from app.core.security import get_password_hash, verify_password
-from app.models.users import User  # Твоя модель SQLAlchemy
+from app.core.security import hash_password, verify_password
+from app.models.base import User
 from sqlalchemy.orm import Session
 from typing import Optional
 
 
 def register_user(session: Session, email: str, raw_password: str, fio: str = "Новый Стажер", stack_id: Optional[int] = None, grade_id: Optional[int] = None):
     # 1. Хэшируем пароль
-    hashed_pwd = get_password_hash(raw_password)
+    hashed_pwd = hash_password(raw_password)
 
     # 2. Создаем пользователя
     new_user = User(

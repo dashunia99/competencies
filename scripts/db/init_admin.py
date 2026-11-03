@@ -1,7 +1,12 @@
 import os
 import sys
-from core.database import SessionLocal
-from core.security import hash_password
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from app.core.database import SessionLocal
+from app.core.security import hash_password
 from app.models.base import Role, User, UserRole
 
 def init_admin():
