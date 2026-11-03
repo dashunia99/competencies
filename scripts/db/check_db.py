@@ -1,8 +1,9 @@
-import os
 import sys
+from pathlib import Path
 
-# Добавляем пути импорта
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Скрипты запускаются из scripts/db, а модули приложения находятся в корне.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from core.database import SessionLocal
 from app.models.base import User, Role, Stack, Grade, LearningProgram, Competency, Material, Task

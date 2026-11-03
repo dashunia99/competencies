@@ -1,11 +1,18 @@
-import os
+from pathlib import Path
+import sys
+
 import pandas as pd
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MATRIX_DIR = PROJECT_ROOT / "data" / "competency_matrices"
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from core.database import SessionLocal
 from app.models.base import Stack, Competency, CompetencyBlock
 
 
-def seed_excel_matrix(file_path: str, stack_title: str):
-    if not os.path.exists(file_path):
+def seed_excel_matrix(file_path: Path, stack_title: str):
+    if not file_path.exists():
         print(f"❌ Файл не найден: {file_path}")
         return
 
@@ -114,5 +121,5 @@ def seed_excel_matrix(file_path: str, stack_title: str):
 
 
 if __name__ == "__main__":
-    seed_excel_matrix("Android матрица компетенций.xlsx", "Android")
-    seed_excel_matrix("Flutter матрица компетенций.xlsx", "Flutter")
+    seed_excel_matrix(MATRIX_DIR / "android.xlsx", "Android")
+    seed_excel_matrix(MATRIX_DIR / "flutter.xlsx", "Flutter")

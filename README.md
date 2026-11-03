@@ -229,15 +229,15 @@ docker compose exec api alembic current
 
 SQL-файлы из каталога `bd/` не следует применять к Docker-базе: они дублируют Alembic и могут не соответствовать текущей модели.
 
-`seed_demo_data.py` удаляет всю схему `public`, включая данные и таблицу состояния Alembic. Его нельзя запускать в окружении с нужными данными.
+`scripts/db/seed_demo_data.py` удаляет всю схему `public`, включая данные и таблицу состояния Alembic. Его нельзя запускать в окружении с нужными данными.
 
 Импорт матриц из Excel выполняется отдельно:
 
 ```powershell
-docker compose exec api python seed_matrix.py
+docker compose exec api python scripts/db/seed_matrix.py
 ```
 
-При повторном запуске `seed_matrix.py` удаляет и заново создаёт компетенции стеков Android и Flutter.
+При повторном запуске `scripts/db/seed_matrix.py` удаляет и заново создаёт компетенции стеков Android и Flutter.
 
 ## Временный публичный доступ
 
@@ -388,7 +388,7 @@ docker compose logs -f
 docker compose restart api
 
 # Выполнение команды Python внутри API
-docker compose exec api python check_db.py
+docker compose exec api python scripts/db/check_db.py
 
 # Открыть psql
 docker compose exec postgres psql -U app -d webant_skills
