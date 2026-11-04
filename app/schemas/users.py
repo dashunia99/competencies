@@ -1,49 +1,44 @@
-from typing import Optional
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from datetime import date
+from typing import Literal, Optional
+from pydantic import BaseModel, EmailStr
 
-class CreateUserRequest(BaseModel):
-    fio: str = Field(min_length=2, max_length=255)  # <-- было username
+
+# 1. Принимаем все поля по ТЗ COMP-17
+class CreateUserSchema(BaseModel):
+    fio: str
     email: EmailStr
     password: str
-    grade_id: Optional[int] = None  # <-- добавлено
-    stack_id: Optional[int] = None
+    position: Optional[str] = None      # Должность
+    start_date: Optional[date] = None   # Дата начала работы (формат YYYY-MM-DD)
+    stack_id: Optional[int] = None      # ID стека
+    grade_id: Optional[int] = None      # ID грейда
+    role_name: Literal["Сотрудник", "Эксперт", "Администратор"]
 
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, value):
-        if len(value) < 8:
-            raise ValueError("Password must be at least 8 characters")
-        elif value in ("password", "pass1234"):
-            raise ValueError("Password is too easy")
-        return value
 
-class UserResponse(BaseModel):
-    id: int  # <-- добавлено
-    fio: str  # <-- было username
-    email: EmailStr
-    grade_id: Optional[int] = None  # <-- добавлено
+# 2. Отдаем расширенный профиль по ТЗ COMP-17
+class UserSchema(BaseModel):
+    id: int
+    fio: str
+    email: str
     stack_id: Optional[int] = None
+    position: Optional[str] = None      # Должность
+    start_date: Optional[date] = None   # Дата начала работы
+    role: Optional[str] = None
+    stack: Optional[str] = None
+    grade: Optional[str] = None
+    is_active: bool
 
     class Config:
-        from_attributes = True  # <-- добавлено для работы с ORM
+        from_attributes = True
 
-class UpdateUserRequest(BaseModel):
-    fio: Optional[str] = None  # <-- было username
-    email: Optional[EmailStr] = None
-    password: Optional[str] = None
-    grade_id: Optional[int] = None  # <-- добавлено
-    stack_id: Optional[int] = None
 
-    @field_validator("password")
-    @classmethod
-    def validate_password(cls, value):
-        if value is not None:  # <-- добавлено, чтобы не падал на None
-            if len(value) < 8:
-                raise ValueError("Password must be at least 8 characters")
-            elif value in ("password", "pass1234"):
-                raise ValueError("Password is too easy")
-        return value
+# Синоним для совместимости
+UserMeSchema = UserSchema
 
-class UserLoginRequest(BaseModel):  # <-- вынесен на верхний уровень
-    email: EmailStr
-    password: str
+class UpdateUserSchema(BaseModel):
+    fio: Optional[str] = None
+    position: Optional[str] = None
+    start_date: Optional[date] = None
+    stack_id: Optional[int] = None      # Изменение направления
+    grade_id: Optional[int] = None      # Изменение грейда
+    role_name: Optional[Literal["Сотрудник", "Эксперт", "Администратор"]] = None

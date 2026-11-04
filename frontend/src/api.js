@@ -25,7 +25,11 @@ export async function apiFetch(endpoint, options = {}) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `Ошибка сервера: ${response.status}`);
+    const detail = errorData.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((issue) => issue.msg).filter(Boolean).join('; ')
+      : typeof detail === 'string' ? detail : null;
+    throw new Error(message || `Ошибка сервера: ${response.status}`);
   }
 
   return response.json();
@@ -53,17 +57,64 @@ export async function getUsersApi() {
   return apiFetch('/users/');
 }
 
-// 4. Мягкая блокировка (COMP-18: POST /api/v1/users/{id}/block)
+export async function getStacksApi() {
+  return apiFetch('/users/stacks');
+}
+
+export async function updateUserProfileApi(userId, updates) {
+  return apiFetch(`/users/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function uploadSubmissionFileApi(file, submissionId) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('submission_id', submissionId);
+
+  const response = await fetch(`${API_BASE}/content/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  if (response.status === 401) removeToken();
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const detail = errorData.detail;
+    const message = Array.isArray(detail)
+      ? detail.map((issue) => issue.msg).filter(Boolean).join('; ')
+      : typeof detail === 'string' ? detail : null;
+    throw new Error(message || `Ошибка загрузки файла: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function getFileDownloadUrlApi(fileId) {
+  return apiFetch(`/content/files/${fileId}/download-url`);
+}
+
+export async function getSubmissionFilesApi() {
+  return apiFetch('/content/submission-files');
+}
+
+// 4. Мягкая блокировка
 export async function blockUserApi(userId) {
   return apiFetch(`/users/${userId}/block`, { method: 'POST' });
 }
 
-// 5. Дерево матрицы компетенций (COMP-20: GET /api/v1/matrices/blocks)
+// 5. Дерево матрицы компетенций
 export async function getMatrixBlocksApi() {
   return apiFetch('/matrices/blocks');
 }
 
-// 6. Сдача решения практической работы (COMP-28: POST /api/v1/submissions)
+// 6. Сдача решения практической работы
 export async function submitTaskApi(taskId, comment, fileKey = 'submission.zip') {
   return apiFetch('/submissions', {
     method: 'POST',
@@ -75,7 +126,7 @@ export async function submitTaskApi(taskId, comment, fileKey = 'submission.zip')
   });
 }
 
-// 7. Проверка решения экспертом (COMP-29: PATCH /api/v1/submissions/{id}/review)
+// 7. Проверка решения экспертом
 export async function reviewSubmissionApi(submissionId, status, comment) {
   return apiFetch(`/submissions/${submissionId}/review`, {
     method: 'PATCH',

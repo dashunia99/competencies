@@ -68,6 +68,8 @@ services:
       --proxy-headers --forwarded-allow-ips='*'"
     ports:
       - "8000:8000"
+    volumes:
+      - ./data/competency_matrices:/app/data/competency_matrices:ro
     depends_on:
       postgres:
         condition: service_healthy

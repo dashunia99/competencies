@@ -1,30 +1,47 @@
+# Git & IDE
 .git
 .gitignore
-.env
-.env.*
 .idea
 .vscode
+
+# Окружения Python
 .venv
 venv
+ENV/
+env/
 
-__pycache__
+# Кэш Python и сборка
+__pycache__/
 *.py[cod]
+*$py.class
 *.log
+build/
+dist/
+*.egg-info/
+frontend/dist/
+frontend/node_modules/
 
-.pytest_cache
-.mypy_cache
-.ruff_cache
-.tox
+# Тесты и покрытие
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
 .coverage
 coverage.xml
-htmlcov
+htmlcov/
 
-build
-dist
-*.egg-info
-backups
+# Резервные копии и локальные данные
+backups/
+*.sqlite3
+*.db
 
-Dockerfile*
-docker-compose*.yml
-docker-compose*.yaml
+# Тяжелые графические файлы и макеты
+design/
+*.xlsx
+
+# Локальные переменные окружения
+.env
+.env.*
+
+# Документация (не требуется внутри контейнера)
 README.md

@@ -3,8 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from core.database import get_db
-from core.security import get_current_user
+from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.base import User, Stack, Grade, CompetencyBlock, Competency
 
 router = APIRouter(prefix="", tags=["Справочники и матрица компетенций"])
