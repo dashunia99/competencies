@@ -1628,7 +1628,7 @@ export default function App() {
                 <textarea
                   id="submission-comment"
                   rows="3"
-                  placeholder="Опишите, что сделано..."
+                  placeholder="Ваш комментарий к решению..."
                   value={submitComment}
                   onChange={(e) => setSubmitComment(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600"
@@ -1930,7 +1930,7 @@ export default function App() {
                           </td>
                           <td className="px-6 py-4">
                             <a href={latestSub?.links?.[0] || latestSub?.link} target="_blank" rel="noreferrer" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
-                              {latestSub?.links?.[0] || latestSub?.link} ↗
+                              {latestSub?.links?.[0] || latestSub?.link}
                             </a>
                           </td>
                           <td className="px-6 py-4 text-right">
@@ -1971,7 +1971,7 @@ export default function App() {
                         <th className="px-6 py-4">Сотрудник</th>
                         <th className="px-6 py-4">Файл</th>
                         <th className="px-6 py-4">Дата загрузки</th>
-                        <th className="px-6 py-4 text-right">Действие</th>
+                        <th className="px-6 py-4 text-right"></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-sm">
@@ -2031,7 +2031,7 @@ export default function App() {
                     <th className="px-6 py-4">Роль</th>
                     <th className="px-6 py-4">Текущий стек</th>
                     <th className="px-6 py-4">Статус</th>
-                    <th className="px-6 py-4 text-right">Действия</th>
+                    <th className="px-6 py-4 text-right"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -2229,11 +2229,7 @@ export default function App() {
                 <textarea
                   rows="3"
                   required
-                  placeholder={
-                    reviewVerdict === 'approved'
-                      ? 'Архитектура чистая, соблюдены SOLID и стандарты. Задание принято!'
-                      : 'Переделайте обработку ошибок и изолируйте бизнес-логику.'
-                  }
+                  placeholder="Ваш комментарий к решению..."
                   value={reviewComment}
                   onChange={(e) => setReviewComment(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600"
