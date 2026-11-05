@@ -1,48 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import {
+  getFileDownloadUrlApi,
+  getMeApi,
+  getStacksApi,
+  getSubmissionFilesApi,
+  getUsersApi,
+  loginApi,
+  removeToken,
+  updateUserProfileApi,
+  uploadSubmissionFileApi,
+} from './api';
 
-// Строго 2 стека из таблицы stacks базы данных PostgreSQL
-const REAL_STACKS = [
-  { id: 1, name: 'Android' },
-  { id: 2, name: 'Flutter' }
-];
-
-// Пользователи системы. Сотрудник ИЗНАЧАЛЬНО БЕЗ СТЕКА (stack_id: null)
-const INITIAL_USERS = [
-  {
-    id: 1,
-    fio: 'Алексей Администраторов',
-    email: 'admin@webant.ru',
-    password: 'admin123password',
-    role: 'Администратор',
-    stack_id: 1,
-    stack: 'Android',
-    grade: 'Lead',
-    is_active: true
-  },
-  {
-    id: 2,
-    fio: 'Елена Экспертова',
-    email: 'expert@webant.ru',
-    password: 'expert123password',
-    role: 'Эксперт',
-    stack_id: 1,
-    stack: 'Android',
-    grade: 'Senior',
-    is_active: true
-  },
-  {
-    id: 3,
-    fio: 'Иванов Иван',
-    email: 'employee@webant.ru',
-    password: 'employee123password',
-    role: 'Сотрудник',
-    stack_id: null,
-    stack: null,
-    grade: 'Junior',
-    is_active: true,
-    startDate: '01.09.2026'
-  }
-];
+const APP_INITIAL_TIME = Date.now();
+const TASK_STATUS_PRIORITY = { returned: 0, needs_help: 1, in_progress: 2, not_started: 3, pending: 4, approved: 5 };
+const createSubmissionId = () => Math.floor(Math.random() * 2_147_483_647) + 1;
 
 // 3-уровневая структура программ обучения, соответствующая матрице компетенций:
 const LEARNING_PROGRAMS = {
@@ -595,9 +566,16 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [authError, setAuthError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState(null);
+  const [currentTimestamp, setCurrentTimestamp] = useState(APP_INITIAL_TIME);
 
   const [dbMatrixBlocks, setDbMatrixBlocks] = useState([]);
   const [dbPrograms, setDbPrograms] = useState([]);
+  const [stackOptions, setStackOptions] = useState([]);
+  const [usersError, setUsersError] = useState('');
+  const [submissionFiles, setSubmissionFiles] = useState([]);
+  const [submissionFilesError, setSubmissionFilesError] = useState('');
 
   useEffect(() => {
     async function fetchDatabaseContent() {
@@ -620,11 +598,10 @@ export default function App() {
     fetchDatabaseContent();
   }, []);
 
-  // Централизованное состояние
-  const [users, setUsers] = useState(INITIAL_USERS);
-  const [currentUserId, setCurrentUserId] = useState(null);
-  const [currentRole, setCurrentRole] = useState('Сотрудник');
-  const [currentTab, setCurrentTab] = useState('profile');
+  // Централизованное состояние пользователей и задач
+  const [users, setUsers] = useState([]);
+  const [currentRole, setCurrentRole] = useState(null);
+  const [currentTab, setCurrentTab] = useState('profile'); // 'profile' | 'program' | 'tasks' | 'matrix' | 'reviews' | 'users'
   const [tasks, setTasks] = useState(INITIAL_TASKS);
 
   // Состояние выбранного задания и экрана
@@ -647,9 +624,15 @@ export default function App() {
   };
 
   // Модальные окна
-  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
-  const [submitLink, setSubmitLink] = useState('');
+  const [submitLinks, setSubmitLinks] = useState(['']);
+  const [submitFiles, setSubmitFiles] = useState([]);
   const [submitComment, setSubmitComment] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [isSubmittingTask, setIsSubmittingTask] = useState(false);
+  const [isUploadingFiles, setIsUploadingFiles] = useState(false);
+  const [activeSubmissionId, setActiveSubmissionId] = useState(null);
+  const [reviewFileError, setReviewFileError] = useState('');
+  const [taskReturnTab, setTaskReturnTab] = useState('program');
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [reviewVerdict, setReviewVerdict] = useState('approved');
@@ -657,57 +640,160 @@ export default function App() {
 
   const [isChangeStackModalOpen, setIsChangeStackModalOpen] = useState(false);
   const [targetUser, setTargetUser] = useState(null);
-  const [selectedStackId, setSelectedStackId] = useState(2);
+  const [selectedStackId, setSelectedStackId] = useState('');
+  const [stackSaveError, setStackSaveError] = useState('');
+  const [isSavingStack, setIsSavingStack] = useState(false);
+  const isLoadingUsers = isAuth && ['Администратор', 'Эксперт'].includes(currentRole) && users.length === 0 && !usersError;
 
-  // Актуальный объект текущего пользователя
-  const currentUser = users.find((u) => u.id === currentUserId) || users[2];
+  const currentUser = authenticatedUser || { stack: null };
 
-  // Авторизация
-  const handleLogin = (e) => {
-    e.preventDefault();
-    setAuthError('');
-    const found = users.find((u) => u.email.toLowerCase() === email.trim().toLowerCase());
-    if (!found) {
-      setAuthError('Пользователь не найден');
-      return;
+  const establishSession = (user) => {
+    const allowedRoles = ['Сотрудник', 'Эксперт', 'Администратор'];
+    if (!allowedRoles.includes(user.role)) {
+      removeToken();
+      throw new Error('Для учетной записи в базе данных не назначена допустимая роль.');
     }
-    if (found.password && found.password !== password) {
-      setAuthError('Неверный пароль');
-      return;
-    }
-    setCurrentUserId(found.id);
-    setCurrentRole(found.role);
-    setIsAuth(true);
-    setCurrentTab(found.role === 'Администратор' ? 'users' : found.role === 'Эксперт' ? 'reviews' : 'profile');
-  };
 
-  const handleQuickLogin = (user) => {
-    setCurrentUserId(user.id);
+    setAuthenticatedUser({
+      ...user,
+      stack_id: user.stack_id ?? null,
+      startDate: user.start_date
+        ? new Date(`${user.start_date}T00:00:00`).toLocaleDateString('ru-RU')
+        : '—',
+      stack: user.stack || null,
+      grade: user.grade || '—',
+    });
+    setUsers([]);
+    setUsersError('');
+    setStackOptions([]);
+    setSubmissionFiles([]);
+    setSubmissionFilesError('');
     setCurrentRole(user.role);
     setIsAuth(true);
     setCurrentTab(user.role === 'Администратор' ? 'users' : user.role === 'Эксперт' ? 'reviews' : 'profile');
-    setSelectedTask(null);
+  };
+
+  useEffect(() => {
+    if (!isAuth || !['Администратор', 'Эксперт'].includes(currentRole)) return undefined;
+
+    let isCurrent = true;
+
+    Promise.all([
+      getUsersApi(),
+      currentRole === 'Администратор' ? getStacksApi() : Promise.resolve([]),
+    ])
+      .then(([apiUsers, apiStacks]) => {
+        if (!isCurrent) return;
+        setUsers(apiUsers.map((user) => ({
+          ...user,
+          startDate: user.start_date
+            ? new Date(`${user.start_date}T00:00:00`).toLocaleDateString('ru-RU')
+            : '—',
+          stack: user.stack || null,
+          grade: user.grade || '—',
+        })));
+        setStackOptions(apiStacks);
+      })
+      .catch((error) => {
+        if (isCurrent) setUsersError(error.message);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isAuth, currentRole]);
+
+  useEffect(() => {
+    if (!isAuth || currentRole !== 'Эксперт') return undefined;
+
+    let isCurrent = true;
+    getSubmissionFilesApi()
+      .then((files) => {
+        if (isCurrent) setSubmissionFiles(files);
+      })
+      .catch((error) => {
+        if (isCurrent) setSubmissionFilesError(error.message);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isAuth, currentRole]);
+
+  useEffect(() => {
+    if (!localStorage.getItem('token')) return;
+
+    getMeApi()
+      .then(establishSession)
+      .catch((error) => {
+        removeToken();
+        setAuthError(error.message);
+      });
+  }, []);
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => setCurrentTimestamp(Date.now()), 60000);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  // Авторизация
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    setIsLoggingIn(true);
+    try {
+      await loginApi(email.trim(), password);
+      establishSession(await getMeApi());
+      setPassword('');
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const handleLogout = () => {
+    removeToken();
     setIsAuth(false);
+    setAuthenticatedUser(null);
+    setCurrentRole(null);
     setSelectedTask(null);
+    setSubmissionFiles([]);
+    setSubmissionFilesError('');
   };
 
-  // Администратор: Назначение стека сотруднику
-  const handleSaveStack = (e) => {
+  // 1. АДМИНИСТРАТОР: Назначает / меняет стек сотруднику
+  const handleSaveStack = async (e) => {
     e.preventDefault();
     if (!targetUser) return;
-    const chosen = REAL_STACKS.find((s) => s.id === Number(selectedStackId));
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === targetUser.id
-          ? { ...u, stack_id: chosen.id, stack: chosen.name }
-          : u
-      )
-    );
-    setIsChangeStackModalOpen(false);
-    setTargetUser(null);
+    const chosen = stackOptions.find((stack) => stack.id === Number(selectedStackId));
+    if (!chosen) {
+      setStackSaveError('Выберите направление из списка.');
+      return;
+    }
+
+    setIsSavingStack(true);
+    setStackSaveError('');
+    try {
+      const updatedUser = await updateUserProfileApi(targetUser.id, { stack_id: chosen.id });
+      setUsers((previousUsers) => previousUsers.map((user) => (
+        user.id === updatedUser.id
+          ? {
+              ...user,
+              ...updatedUser,
+              stack_id: updatedUser.stack_id,
+              stack: updatedUser.stack || null,
+              grade: updatedUser.grade || '—',
+            }
+          : user
+      )));
+      setIsChangeStackModalOpen(false);
+      setTargetUser(null);
+    } catch (error) {
+      setStackSaveError(error.message);
+    } finally {
+      setIsSavingStack(false);
+    }
   };
 
   // Мягкая блокировка
@@ -719,47 +805,147 @@ export default function App() {
 
   // Перевод задания в статус "В работе"
   const handleStartTask = (taskId) => {
+    const startedAt = new Date().toISOString();
     setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: 'in_progress' } : t))
+      prev.map((t) => (t.id === taskId ? { ...t, status: 'in_progress', startedAt, modifiedAt: startedAt } : t))
     );
-    setSelectedTask((prev) => (prev ? { ...prev, status: 'in_progress' } : null));
+    setSelectedTask((prev) => (prev ? { ...prev, status: 'in_progress', startedAt, modifiedAt: startedAt } : null));
   };
 
-  // Отправка задания на проверку (Сотрудник)
-  const handleSubmitTask = (e) => {
+  // 2. СОТРУДНИК: Отправка домашки (сдача / пересдача)
+  const handleSubmitTask = async (e) => {
     e.preventDefault();
-    if (!selectedTask || !submitLink.trim()) return;
+    if (!selectedTask) return;
+    const links = submitLinks.map((link) => link.trim()).filter(Boolean);
+    if (!submitComment.trim() && links.length === 0 && submitFiles.length === 0) {
+      setSubmitError('Добавьте текстовый ответ, ссылку или файл.');
+      return;
+    }
 
-    const newSub = {
-      id: Date.now(),
-      attemptNumber: selectedTask.attemptsUsed + 1,
-      authorFio: currentUser.fio,
-      date: 'Сегодня, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      link: submitLink.trim(),
-      comment: submitComment.trim(),
-      verdict: 'pending',
-      expertComment: ''
-    };
-
-    setTasks((prev) =>
-      prev.map((t) => {
-        if (t.id === selectedTask.id) {
-          const updated = {
-            ...t,
-            status: 'pending',
-            attemptsUsed: t.attemptsUsed + 1,
-            submissions: [newSub, ...(t.submissions || [])]
-          };
-          setSelectedTask(updated);
-          return updated;
+    setSubmitError('');
+    setIsSubmittingTask(true);
+    try {
+      const submissionId = activeSubmissionId || createSubmissionId();
+      const uploadedFiles = [];
+      for (const file of submitFiles) {
+        if (file.file_id) {
+          uploadedFiles.push(file);
+          continue;
         }
-        return t;
-      })
-    );
 
-    setIsSubmitModalOpen(false);
-    setSubmitLink('');
-    setSubmitComment('');
+        const uploaded = await uploadSubmissionFileApi(file, submissionId);
+        const attachedFile = {
+          ...uploaded,
+          name: uploaded.original_name,
+          size: uploaded.size_bytes,
+        };
+        uploadedFiles.push(attachedFile);
+        setSubmitFiles((files) => files.map((item) => item === file ? attachedFile : item));
+      }
+
+      const submittedAt = new Date().toISOString();
+      const elapsedMinutes = selectedTask.startedAt
+        ? Math.max(0, Math.round((Date.now() - new Date(selectedTask.startedAt).getTime()) / 60000))
+        : 0;
+      const actualMinutes = (selectedTask.actualMinutes || 0) + elapsedMinutes;
+      const newSub = {
+        id: submissionId,
+        attemptNumber: selectedTask.attemptsUsed + 1,
+        authorFio: currentUser.fio,
+        date: 'Сегодня, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        links,
+        files: uploadedFiles.map((file) => ({
+          id: file.file_id,
+          name: file.original_name || file.name,
+          size: file.size_bytes ?? file.size,
+        })),
+        comment: submitComment.trim(),
+        verdict: 'pending',
+        expertComment: ''
+      };
+
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === selectedTask.id) {
+            const updated = {
+              ...t,
+              status: 'pending',
+              attemptsUsed: t.attemptsUsed + 1,
+              actualMinutes,
+              modifiedAt: submittedAt,
+              submissions: [newSub, ...(t.submissions || [])]
+            };
+            setSelectedTask(updated);
+            return updated;
+          }
+          return t;
+        })
+      );
+
+      setSubmitLinks(['']);
+      setSubmitFiles([]);
+      setSubmitComment('');
+      setActiveSubmissionId(null);
+      setCurrentTab('task_detail');
+    } catch (error) {
+      setSubmitError(error.message);
+    } finally {
+      setIsSubmittingTask(false);
+    }
+  };
+
+  const handleSubmissionFilesSelected = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+
+    const submissionId = activeSubmissionId || createSubmissionId();
+    if (!activeSubmissionId) setActiveSubmissionId(submissionId);
+    setSubmitError('');
+    setIsUploadingFiles(true);
+
+    const uploadedFiles = [];
+    const uploadErrors = [];
+    for (const file of files) {
+      try {
+        const uploaded = await uploadSubmissionFileApi(file, submissionId);
+        uploadedFiles.push({
+          ...uploaded,
+          name: uploaded.original_name,
+          size: uploaded.size_bytes,
+        });
+      } catch (error) {
+        uploadErrors.push(`${file.name}: ${error.message}`);
+      }
+    }
+
+    if (uploadedFiles.length > 0) {
+      setSubmitFiles((currentFiles) => [...currentFiles, ...uploadedFiles]);
+    }
+    if (uploadErrors.length > 0) {
+      setSubmitError(uploadErrors.join(' '));
+    }
+    setIsUploadingFiles(false);
+  };
+
+  const openSubmissionFile = async (file) => {
+    const fileWindow = window.open('about:blank', '_blank');
+    if (!fileWindow) {
+      setReviewFileError('Разрешите всплывающие окна, чтобы открыть файл.');
+      setSubmissionFilesError('Разрешите всплывающие окна, чтобы открыть файл.');
+      return;
+    }
+
+    try {
+      const { download_url: downloadUrl } = await getFileDownloadUrlApi(file.id);
+      fileWindow.location.href = downloadUrl;
+      setReviewFileError('');
+      setSubmissionFilesError('');
+    } catch (error) {
+      fileWindow.close();
+      setReviewFileError(error.message);
+      setSubmissionFilesError(error.message);
+    }
   };
 
   // Проверка задания экспертом
@@ -767,6 +953,7 @@ export default function App() {
     e.preventDefault();
     if (!selectedTask) return;
 
+    const modifiedAt = new Date().toISOString();
     setTasks((prev) =>
       prev.map((t) => {
         if (t.id === selectedTask.id) {
@@ -781,6 +968,7 @@ export default function App() {
           return {
             ...t,
             status: reviewVerdict,
+            modifiedAt,
             submissions: subs
           };
         }
@@ -814,20 +1002,49 @@ export default function App() {
     if (taskFilter === 'pending') return t.status === 'pending';
     if (taskFilter === 'approved') return t.status === 'approved';
     if (taskFilter === 'returned') return t.status === 'returned';
+    if (taskFilter === 'needs_help') return t.status === 'needs_help';
     return true;
-  });
+  }).sort((a, b) => TASK_STATUS_PRIORITY[a.status] - TASK_STATUS_PRIORITY[b.status]);
+  const taskStatusCounts = {
+    todo: employeeTasks.filter((task) => ['not_started', 'in_progress'].includes(task.status)).length,
+    returned: employeeTasks.filter((task) => task.status === 'returned').length,
+    needsHelp: employeeTasks.filter((task) => task.status === 'needs_help').length,
+    pending: employeeTasks.filter((task) => task.status === 'pending').length,
+    approved: employeeTasks.filter((task) => task.status === 'approved').length,
+  };
 
   const openTaskFromSection = (taskId) => {
     const found = tasks.find((t) => t.id === taskId);
     if (found) {
+      setTaskReturnTab('program');
       setSelectedTask(found);
       setCurrentTab('task_detail');
     }
   };
 
-  // ==========================================
-  // ЭКРАН 1: ВХОД
-  // ==========================================
+  const formatTaskTime = (minutes) => {
+    if (minutes == null) return '—';
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return remainingMinutes ? `${hours} ч ${remainingMinutes} мин` : `${hours} ч`;
+  };
+
+  const formatModifiedDate = (date, fallback) => {
+    if (!date) return fallback || '—';
+    const parsedDate = new Date(date);
+    if (Number.isNaN(parsedDate.getTime())) return fallback || '—';
+    return parsedDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+  };
+
+  const getTaskActualMinutes = (task) => {
+    if (task.actualMinutes != null) return task.actualMinutes;
+    if (task.status === 'in_progress' && task.startedAt) {
+      return Math.max(0, Math.round((currentTimestamp - new Date(task.startedAt).getTime()) / 60000));
+    }
+    return null;
+  };
+
+  // ЭКРАН 1: ВХОД (СТРОГО 3 РОЛИ)
   if (!isAuth) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
@@ -871,43 +1088,12 @@ export default function App() {
             </div>
             <button
               type="submit"
-              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-sm shadow-md shadow-indigo-100 transition-colors"
+              disabled={isLoggingIn}
+              className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-medium rounded-lg text-sm shadow-md shadow-indigo-100 transition-colors"
             >
-              Войти в систему
+              {isLoggingIn ? 'Выполняется вход…' : 'Войти в систему'}
             </button>
           </form>
-
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider text-center mb-3">
-              Быстрый вход для проверки
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin(users[0])}
-                className="p-2 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 text-center transition-colors"
-              >
-                <div className="text-xs font-bold text-slate-800">Администратор</div>
-                <div className="text-[10px] text-slate-400 truncate">admin@webant.ru</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin(users[1])}
-                className="p-2 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50/50 text-center transition-colors"
-              >
-                <div className="text-xs font-bold text-slate-800">Эксперт</div>
-                <div className="text-[10px] text-slate-400 truncate">expert@webant.ru</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin(users[2])}
-                className="p-2 border border-indigo-200 bg-indigo-50/30 rounded-lg hover:border-indigo-400 text-center transition-colors"
-              >
-                <div className="text-xs font-bold text-indigo-900">Сотрудник</div>
-                <div className="text-[10px] text-indigo-600 truncate">{users[2].stack ? users[2].stack : 'БЕЗ стека'}</div>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     );
@@ -986,6 +1172,14 @@ export default function App() {
             {currentRole === 'Эксперт' && (
               <nav className="flex space-x-6 text-sm">
                 <button
+                  onClick={() => setCurrentTab('profile')}
+                  className={`font-medium transition-colors ${
+                    currentTab === 'profile' ? 'text-slate-900 font-bold border-b-2 border-slate-900 py-5' : 'text-slate-500 hover:text-slate-900 py-5'
+                  }`}
+                >
+                  Кабинет
+                </button>
+                <button
                   onClick={() => { setCurrentTab('reviews'); setSelectedTask(null); }}
                   className={`font-medium transition-colors ${
                     currentTab === 'reviews' ? 'text-slate-900 font-bold border-b-2 border-slate-900 py-5' : 'text-slate-500 hover:text-slate-900 py-5'
@@ -1004,6 +1198,14 @@ export default function App() {
             {currentRole === 'Администратор' && (
               <nav className="flex space-x-6 text-sm">
                 <button
+                  onClick={() => setCurrentTab('profile')}
+                  className={`font-medium transition-colors ${
+                    currentTab === 'profile' ? 'text-slate-900 font-bold border-b-2 border-slate-900 py-5' : 'text-slate-500 hover:text-slate-900 py-5'
+                  }`}
+                >
+                  Кабинет
+                </button>
+                <button
                   onClick={() => { setCurrentTab('users'); setSelectedTask(null); }}
                   className={`font-medium transition-colors ${
                     currentTab === 'users' ? 'text-slate-900 font-bold border-b-2 border-slate-900 py-5' : 'text-slate-500 hover:text-slate-900 py-5'
@@ -1016,23 +1218,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-5 text-sm">
-            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200">
-              <span className="text-[11px] font-semibold text-slate-500 px-2">Роль:</span>
-              {users.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => handleQuickLogin(u)}
-                  className={`px-2 py-0.5 text-xs rounded transition-colors ${
-                    currentUser.id === u.id
-                      ? 'bg-white text-indigo-600 font-bold shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {u.role}
-                </button>
-              ))}
-            </div>
-
             <span className="text-slate-700 font-medium">{currentUser.fio}</span>
             <button
               onClick={handleLogout}
@@ -1050,22 +1235,45 @@ export default function App() {
         {/* ======================================================== */}
         {/* 1. ЛИЧНЫЙ КАБИНЕТ СОТРУДНИКА (ПО МАКЕТУ 02 И 02б)        */}
         {/* ======================================================== */}
-        {currentRole === 'Сотрудник' && currentTab === 'profile' && (
+        {currentTab === 'profile' && (
           <div className="space-y-6">
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center space-x-5">
-              <div className="w-14 h-14 bg-slate-200 rounded-full flex-shrink-0 flex items-center justify-center text-slate-500 font-bold text-lg">
-                {currentUser.fio ? currentUser.fio[0] : 'И'}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-xs">
+              <div className="flex items-center space-x-4">
+                <div className="w-16 h-16 bg-slate-200 rounded-full flex-shrink-0 flex items-center justify-center text-slate-500 font-bold text-lg">
+                  {currentUser.fio ? currentUser.fio[0] : 'И'}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">{currentUser.fio}</h2>
+                  <span className="inline-flex mt-1 px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-semibold">
+                    {currentUser.role}
+                  </span>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">{currentUser.fio}</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {currentUser.stack ? currentUser.stack : 'Направление не выбрано'} • {currentUser.grade} • с {currentUser.startDate}
-                </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-5 mt-5 pt-5 border-t border-slate-200">
+                {currentRole === 'Сотрудник' && (
+                  <div>
+                    <div className="text-xs text-slate-400">Направление</div>
+                    <div className="text-sm font-medium text-slate-900 mt-1">{currentUser.stack || 'Не назначено'}</div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-xs text-slate-400">Грейд</div>
+                  <div className="text-sm font-medium text-slate-900 mt-1">{currentUser.grade}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400">Должность</div>
+                  <div className="text-sm font-medium text-slate-900 mt-1">{currentUser.position || '—'}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400">Дата начала работы</div>
+                  <div className="text-sm font-medium text-slate-900 mt-1">{currentUser.startDate}</div>
+                </div>
               </div>
             </div>
 
-            {/* Блок «Моя программа» с прогресс-баром */}
-            <div className="space-y-3">
+            {/* Блок «Моя программа» */}
+            {currentRole === 'Сотрудник' && (
+              <div className="space-y-3">
               <h3 className="text-sm font-bold text-slate-900">Моя программа</h3>
               {!currentUser.stack ? (
                 <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-2">
@@ -1108,16 +1316,19 @@ export default function App() {
                   </div>
                 </div>
               )}
-            </div>
+              </div>
+            )}
 
-            {/* Блок «Матрица компетенций» с живым счетчиком */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-900">Матрица компетенций</h3>
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-2">
-                <div className="text-xs text-slate-500 font-medium">
-                  Подтверждено {confirmedCount} · В процессе {inProgressCount} · Не оценено {notStartedCount}
-                </div>
-                <div>
+            {/* Блок «Матрица компетенций» (в точности как на Скриншоте 2) */}
+            {currentRole === 'Сотрудник' && (
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold text-slate-900">Матрица компетенций</h3>
+                <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-2">
+                  <div className="grid grid-cols-3 gap-4 text-slate-900 text-xs">
+                    <div><strong className="block text-xl">{confirmedCount}</strong><span className="text-slate-500">Подтверждено</span></div>
+                    <div><strong className="block text-xl">{inProgressCount}</strong><span className="text-slate-500">В процессе</span></div>
+                    <div><strong className="block text-xl">{notStartedCount}</strong><span className="text-slate-500">Не оценено</span></div>
+                  </div>
                   <button
                     onClick={() => {
                       if (!currentUser.stack) {
@@ -1128,11 +1339,11 @@ export default function App() {
                     }}
                     className="text-xs font-bold text-slate-900 hover:underline inline-flex items-center"
                   >
-                    Открыть матрицу →
+                    Открыть матрицу
                   </button>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -1238,13 +1449,16 @@ export default function App() {
         {/* ======================================================== */}
         {/* 3. КАРТОЧКА ЗАДАНИЯ (ПО МАКЕТУ 05 И 05б)                 */}
         {/* ======================================================== */}
-        {currentRole === 'Сотрудник' && (currentTab === 'task_detail' || (currentTab === 'tasks' && selectedTask)) && selectedTask && (
+        {currentRole === 'Сотрудник' && currentTab === 'task_detail' && selectedTask && (
           <div className="space-y-6">
             <button
-              onClick={() => { setSelectedTask(null); setCurrentTab('program'); }}
+              onClick={() => {
+                setSelectedTask(null);
+                setCurrentTab(taskReturnTab);
+              }}
               className="text-xs font-semibold text-slate-500 hover:text-slate-900 flex items-center space-x-1"
             >
-              <span>← К программе</span>
+              <span>{taskReturnTab === 'program' ? '← К программе' : '← К заданиям'}</span>
             </button>
 
             <div className="flex items-center justify-between">
@@ -1255,12 +1469,14 @@ export default function App() {
                 selectedTask.status === 'approved' ? 'bg-[#e7f7ed] text-[#1e8346]' :
                 selectedTask.status === 'returned' ? 'bg-[#fdebee] text-[#cf2a45]' :
                 selectedTask.status === 'pending' ? 'bg-[#fef4e5] text-[#b47113]' :
+                selectedTask.status === 'needs_help' ? 'bg-[#fdebee] text-[#cf2a45]' :
                 selectedTask.status === 'in_progress' ? 'bg-[#e8f0fe] text-[#1a73e8]' :
                 'bg-[#f0f2f5] text-slate-600'
               }`}>
                 {selectedTask.status === 'approved' && 'Принято'}
                 {selectedTask.status === 'returned' && 'Возвращено'}
                 {selectedTask.status === 'pending' && 'На проверке'}
+                {selectedTask.status === 'needs_help' && 'Требуется помощь'}
                 {selectedTask.status === 'in_progress' && 'В работе'}
                 {selectedTask.status === 'not_started' && 'Не начато'}
               </span>
@@ -1325,7 +1541,12 @@ export default function App() {
                         {sub.verdict === 'pending' && '⏳ Ожидает вердикта'}
                       </span>
                     </div>
-                    <div><strong>Ссылка на PR:</strong> <a href={sub.link} target="_blank" rel="noreferrer" className="underline">{sub.link}</a></div>
+                    {(sub.links?.length ? sub.links : sub.link ? [sub.link] : []).map((link, index) => (
+                      <div key={link}><strong>{index === 0 ? 'Ссылка:' : 'Ссылка 2:'}</strong> <a href={link} target="_blank" rel="noreferrer" className="underline">{link}</a></div>
+                    ))}
+                    {sub.files?.map((file) => (
+                      <div key={file.name}><strong>Файл:</strong> {file.name}</div>
+                    ))}
                     {sub.comment && <div className="mt-1"><strong>Комментарий сотрудника:</strong> {sub.comment}</div>}
                     {sub.expertComment && (
                       <div className="mt-2 p-2 bg-white rounded-lg border border-slate-200 text-slate-800">
@@ -1350,7 +1571,20 @@ export default function App() {
 
               {(selectedTask.status === 'in_progress' || selectedTask.status === 'returned') && selectedTask.attemptsUsed < selectedTask.maxAttempts && (
                 <button
-                  onClick={() => setIsSubmitModalOpen(true)}
+                  onClick={() => {
+                    setSubmitError('');
+                    setActiveSubmissionId(createSubmissionId());
+                    setSubmitLinks(['']);
+                    setSubmitFiles([]);
+                    setSubmitComment('');
+                    if (selectedTask.status === 'returned') {
+                      const startedAt = new Date().toISOString();
+                      const resumedTask = { ...selectedTask, status: 'in_progress', startedAt, modifiedAt: startedAt };
+                      setSelectedTask(resumedTask);
+                      setTasks((prev) => prev.map((task) => task.id === selectedTask.id ? resumedTask : task));
+                    }
+                    setCurrentTab('task_submission');
+                  }}
                   className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-xs transition-colors"
                 >
                   {selectedTask.attemptsUsed === 0 ? 'Сдать задание' : 'Пересдать задание (Попытка 2)'}
@@ -1376,6 +1610,106 @@ export default function App() {
           </div>
         )}
 
+        {currentRole === 'Сотрудник' && currentTab === 'task_submission' && selectedTask && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <button
+              onClick={() => setCurrentTab('task_detail')}
+              className="text-xs font-semibold text-slate-500 hover:text-slate-900"
+            >
+              ← К заданию
+            </button>
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-slate-900">{selectedTask.number} {selectedTask.title}</h2>
+              <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-semibold">В работе</span>
+            </div>
+            <form onSubmit={handleSubmitTask} className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
+              <div>
+                <label htmlFor="submission-comment" className="block text-sm font-medium text-slate-900 mb-2">Ответ текстом</label>
+                <textarea
+                  id="submission-comment"
+                  rows="3"
+                  placeholder="Опишите, что сделано..."
+                  value={submitComment}
+                  onChange={(e) => setSubmitComment(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600"
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-sm font-medium text-slate-900">Ссылки на результат</label>
+                  <button type="button" onClick={() => setSubmitLinks((links) => [...links, ''])} className="text-sm font-medium text-indigo-700">
+                    + Добавить ссылку
+                  </button>
+                </div>
+                {submitLinks.map((link, index) => (
+                  <div key={index} className="flex gap-2">
+                    <input
+                      type="url"
+                      aria-label={`Ссылка на результат ${index + 1}`}
+                      placeholder="https://..."
+                      value={link}
+                      onChange={(e) => setSubmitLinks((links) => links.map((value, i) => i === index ? e.target.value : value))}
+                      className="min-w-0 flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600"
+                    />
+                    {submitLinks.length > 1 && (
+                      <button type="button" onClick={() => setSubmitLinks((links) => links.filter((_, i) => i !== index))} className="px-3 text-slate-500">
+                        Удалить
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label htmlFor="submission-files" className="block text-sm font-medium text-slate-900 mb-2">Файлы</label>
+                <input
+                  id="submission-files"
+                  type="file"
+                  multiple
+                  disabled={isUploadingFiles}
+                  onChange={handleSubmissionFilesSelected}
+                  className="sr-only"
+                />
+                <label
+                  htmlFor="submission-files"
+                  className={`inline-flex cursor-pointer items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:border-indigo-400 hover:bg-indigo-50 hover:text-indigo-700 ${isUploadingFiles ? 'pointer-events-none opacity-60' : ''}`}
+                >
+                  {isUploadingFiles ? 'Загрузка файлов…' : '＋ Прикрепить файл'}
+                </label>
+                <p className="mt-2 text-xs text-slate-500">Можно прикрепить несколько файлов, до 50 МБ каждый.</p>
+                {submitFiles.length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {submitFiles.map((file, index) => (
+                      <li key={`${file.name}-${index}`} className="flex justify-between gap-3 text-sm text-slate-700">
+                          <span className="truncate">
+                            {file.original_name || file.name}{' '}
+                            <span className="text-slate-400">({((file.size_bytes ?? file.size) / 1024 / 1024).toFixed(2)} МБ)</span>
+                            {file.file_id && <span className="ml-2 text-emerald-700">Загружен в хранилище</span>}
+                          </span>
+                          <button type="button" onClick={() => setSubmitFiles((files) => files.filter((_, i) => i !== index))} className="text-slate-500">
+                            Удалить
+                          </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="text-sm font-semibold text-rose-700">
+                Осталось сдач: {Math.max(0, selectedTask.maxAttempts - selectedTask.attemptsUsed)} из {selectedTask.maxAttempts}
+              </div>
+              {submitError && <p role="alert" className="text-sm text-rose-700">{submitError}</p>}
+              <div className="flex gap-3">
+                <button type="submit" disabled={isSubmittingTask || isUploadingFiles} className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-lg disabled:cursor-wait disabled:opacity-60">
+                  {isSubmittingTask ? 'Отправляем…' : isUploadingFiles ? 'Загрузка файлов…' : 'Отправить на проверку'}
+                </button>
+                <button type="button" onClick={() => setCurrentTab('task_detail')} className="px-5 py-2.5 border border-slate-300 text-slate-800 text-sm font-medium rounded-lg">
+                  Отмена
+                </button>
+              </div>
+              <p className="text-xs text-slate-500">Пустая форма не отправляется: добавьте текст, ссылку или файл.</p>
+            </form>
+          </div>
+        )}
+
         {/* ======================================================== */}
         {/* 4. МОИ ЗАДАНИЯ (СПИСОК)                                   */}
         {/* ======================================================== */}
@@ -1383,7 +1717,7 @@ export default function App() {
           <div className="space-y-6">
             <div className="flex justify-between items-center">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">Мои практические задания</h2>
+                <h2 className="text-2xl font-bold text-slate-900">Мои задания</h2>
                 <p className="text-sm text-slate-500">Задания из программы обучения направления {currentUser.stack}</p>
               </div>
 
@@ -1393,6 +1727,7 @@ export default function App() {
                   { id: 'in_progress', label: 'В работе' },
                   { id: 'pending', label: 'На проверке' },
                   { id: 'returned', label: 'Возвращено' },
+                  { id: 'needs_help', label: 'Требуется помощь' },
                   { id: 'approved', label: 'Принято' },
                 ].map((tab) => (
                   <button
@@ -1408,15 +1743,34 @@ export default function App() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-              <table className="w-full text-left border-collapse">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { label: 'Нужно сделать', count: taskStatusCounts.todo },
+                { label: 'Возвращено', count: taskStatusCounts.returned },
+                { label: 'Требуется помощь', count: taskStatusCounts.needsHelp },
+                { label: 'На проверке', count: taskStatusCounts.pending },
+                { label: 'Принято', count: taskStatusCounts.approved },
+              ].map((item) => (
+                <div key={item.label} className="bg-white rounded-xl border border-slate-200 px-4 py-3">
+                  <strong className="block text-xl text-slate-900">{item.count}</strong>
+                  <span className="text-xs text-slate-500">{item.label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500">Сначала задания, где нужно действие</p>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
+              <table className="min-w-[1050px] w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
                     <th className="px-6 py-4">Номер</th>
-                    <th className="px-6 py-4">Практическая работа</th>
-                    <th className="px-6 py-4">Попытки</th>
+                    <th className="px-6 py-4">Задание</th>
+                    <th className="px-6 py-4">Тема</th>
                     <th className="px-6 py-4">Статус</th>
-                    <th className="px-6 py-4 text-right"></th>
+                    <th className="px-6 py-4">Попытки</th>
+                    <th className="px-6 py-4">Факт / план</th>
+                    <th className="px-6 py-4">Изменено</th>
+                    <th className="px-6 py-4"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -1424,30 +1778,43 @@ export default function App() {
                     <tr key={task.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="px-6 py-4 font-mono text-xs text-slate-500">{task.number}</td>
                       <td className="px-6 py-4 text-slate-900 font-semibold">{task.title}</td>
+                      <td className="px-6 py-4 text-slate-700">{task.competency}</td>
+                      <td className="px-6 py-4">
+                        {task.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#e7f7ed] text-[#1e8346]">Принято</span>}
+                        {task.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#fef4e5] text-[#b47113]">На проверке</span>}
+                        {task.status === 'returned' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#fdebee] text-[#cf2a45]">Возвращено</span>}
+                        {task.status === 'needs_help' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#fdebee] text-[#cf2a45]">Требуется помощь</span>}
+                        {task.status === 'in_progress' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#e8f0fe] text-[#1a73e8]">В работе</span>}
+                        {task.status === 'not_started' && <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Не начато</span>}
+                      </td>
                       <td className="px-6 py-4">
                         <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
                           {task.attemptsUsed} из {task.maxAttempts}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
-                        {task.status === 'approved' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#e7f7ed] text-[#1e8346]">Принято</span>}
-                        {task.status === 'pending' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#fef4e5] text-[#b47113]">На проверке</span>}
-                        {task.status === 'returned' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#fdebee] text-[#cf2a45]">Возвращено</span>}
-                        {task.status === 'in_progress' && <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#e8f0fe] text-[#1a73e8]">В работе</span>}
-                        {task.status === 'not_started' && <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">Не начато</span>}
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">
+                        {formatTaskTime(getTaskActualMinutes(task))} / {task.planTime || '—'}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-xs">{formatModifiedDate(task.modifiedAt, task.submissions?.[0]?.date)}</td>
                       <td className="px-6 py-4 text-right">
                         <button
-                          onClick={() => setSelectedTask(task)}
+                          onClick={() => {
+                            setTaskReturnTab('tasks');
+                            setSelectedTask(task);
+                            setCurrentTab('task_detail');
+                          }}
                           className="px-3.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg transition-colors"
                         >
-                          Открыть →
+                          Открыть
                         </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {!isLoadingUsers && !usersError && users.length === 0 && (
+                <p className="p-6 text-center text-sm text-slate-500">Пользователи не найдены.</p>
+              )}
             </div>
           </div>
         )}
@@ -1532,7 +1899,7 @@ export default function App() {
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold text-slate-900">Очередь ревью практических работ</h2>
-              <p className="text-sm text-slate-500">Работы сотрудников со статусом pending, ожидающие проверки (COMP-29)</p>
+              <p className="text-sm text-slate-500">Работы сотрудников, ожидающие проверки</p>
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
@@ -1562,13 +1929,13 @@ export default function App() {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <a href={latestSub?.link} target="_blank" rel="noreferrer" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
-                              {latestSub?.link} 
+                            <a href={latestSub?.links?.[0] || latestSub?.link} target="_blank" rel="noreferrer" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800">
+                              {latestSub?.links?.[0] || latestSub?.link} ↗
                             </a>
                           </td>
                           <td className="px-6 py-4 text-right">
                             <button
-                              onClick={() => { setSelectedTask(task); setIsReviewModalOpen(true); }}
+                              onClick={() => { setReviewFileError(''); setSelectedTask(task); setIsReviewModalOpen(true); }}
                               className="px-4 py-1.5 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs"
                             >
                               Проверить работу →
@@ -1581,10 +1948,65 @@ export default function App() {
                 </table>
               ) : (
                 <div className="p-8 text-center text-slate-500 text-sm">
-                  ☕ Очередь пуста! Все отправленные решения проверены.
+                  На проверке пока нет заданий.
                 </div>
               )}
             </div>
+
+            <section className="space-y-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Файлы из сдач</h3>
+                <p className="text-sm text-slate-500">Загруженные сотрудниками файлы, доступные из MinIO</p>
+              </div>
+              {submissionFilesError && (
+                <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">
+                  {submissionFilesError}
+                </p>
+              )}
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+                {submissionFiles.length > 0 ? (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
+                        <th className="px-6 py-4">Сотрудник</th>
+                        <th className="px-6 py-4">Файл</th>
+                        <th className="px-6 py-4">Дата загрузки</th>
+                        <th className="px-6 py-4 text-right">Действие</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-sm">
+                      {submissionFiles.map((file) => (
+                        <tr key={file.id}>
+                          <td className="px-6 py-4 font-medium text-slate-900">{file.uploaded_by}</td>
+                          <td className="px-6 py-4 text-slate-700">
+                            {file.original_name}
+                            {file.size_bytes != null && (
+                              <span className="ml-2 text-xs text-slate-400">
+                                ({(file.size_bytes / 1024 / 1024).toFixed(2)} МБ)
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-slate-500">
+                            {new Date(file.uploaded_at).toLocaleString('ru-RU')}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => openSubmissionFile(file)}
+                              className="font-semibold text-indigo-600 hover:text-indigo-800"
+                            >
+                              Открыть
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="p-6 text-center text-sm text-slate-500">Загруженных файлов пока нет.</div>
+                )}
+              </div>
+            </section>
           </div>
         )}
 
@@ -1595,9 +2017,11 @@ export default function App() {
           <div className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold text-slate-900">Реестр пользователей системы</h2>
-              <p className="text-sm text-slate-500">Управление учетными записями, назначение направления и блокировка (COMP-18)</p>
+              <p className="text-sm text-slate-500">Управление учетными записями, направлениями и доступом</p>
             </div>
 
+            {usersError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{usersError}</p>}
+            {isLoadingUsers && <p className="text-sm text-slate-500">Загружаем пользователей…</p>}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -1607,7 +2031,7 @@ export default function App() {
                     <th className="px-6 py-4">Роль</th>
                     <th className="px-6 py-4">Текущий стек</th>
                     <th className="px-6 py-4">Статус</th>
-                    <th className="px-6 py-4 text-right"></th>
+                    <th className="px-6 py-4 text-right">Действия</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -1620,12 +2044,15 @@ export default function App() {
                           {u.role}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-semibold">
-                        {u.stack ? (
-                          <span className="text-indigo-600 font-bold">{u.stack}</span>
+                      <td className="px-6 py-4">
+                        {u.role !== 'Сотрудник' ? (
+                          <span className="text-slate-300">—</span>
+                        ) : u.stack ? (
+                          <span className="font-bold text-indigo-600">{u.stack}</span>
                         ) : (
-                          <span className="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-xs font-bold">
-                            ⚠️ Стек не назначен
+                          <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                            <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                            Не назначен
                           </span>
                         )}
                       </td>
@@ -1642,7 +2069,8 @@ export default function App() {
                             <button
                               onClick={() => {
                                 setTargetUser(u);
-                                setSelectedStackId(u.stack_id || 2);
+                                setSelectedStackId(u.stack_id || stackOptions[0]?.id || '');
+                                setStackSaveError('');
                                 setIsChangeStackModalOpen(true);
                               }}
                               className="px-3 py-1 text-xs font-bold bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors shadow-xs"
@@ -1683,6 +2111,7 @@ export default function App() {
               <button onClick={() => setIsChangeStackModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
             <form onSubmit={handleSaveStack} className="space-y-4">
+              {stackSaveError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{stackSaveError}</p>}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
                   Выберите технологическое направление:
@@ -1692,13 +2121,11 @@ export default function App() {
                   onChange={(e) => setSelectedStackId(Number(e.target.value))}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none bg-white font-medium"
                 >
-                  {REAL_STACKS.map((s) => (
+                  {stackOptions.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
-                <p className="text-xs text-slate-500 mt-2">
-                  В базе данных хранятся ровно 2 направления: <strong>Android</strong> и <strong>Flutter</strong>.
-                </p>
+                {stackOptions.length === 0 && <p className="mt-2 text-sm text-rose-700">В базе данных нет доступных направлений.</p>}
               </div>
               <div className="flex justify-end space-x-2 pt-2">
                 <button
@@ -1710,59 +2137,10 @@ export default function App() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg"
+                  disabled={isSavingStack || stackOptions.length === 0}
+                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-semibold rounded-lg disabled:opacity-60"
                 >
-                  Сохранить направление
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* МОДАЛКА: СДАЧА ДОМАШКИ (СОТРУДНИК) */}
-      {isSubmitModalOpen && selectedTask && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 border border-slate-200 shadow-xl space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
-              <h3 className="font-bold text-base text-slate-800">Сдача практической работы</h3>
-              <button onClick={() => setIsSubmitModalOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
-            </div>
-            <form onSubmit={handleSubmitTask} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Ссылка на решение (GitHub PR / Merge Request) *</label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://github.com/webant-team/.../pull/1"
-                  value={submitLink}
-                  onChange={(e) => setSubmitLink(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600 font-mono"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Комментарий к решению</label>
-                <textarea
-                  rows="3"
-                  placeholder="Ваш комментарий к решению..."
-                  value={submitComment}
-                  onChange={(e) => setSubmitComment(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600"
-                />
-              </div>
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsSubmitModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 text-slate-600 text-xs rounded-lg"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white text-xs font-medium rounded-lg"
-                >
-                  Отправить эксперту
+                  {isSavingStack ? 'Сохраняем…' : 'Сохранить направление'}
                 </button>
               </div>
             </form>
@@ -1782,12 +2160,34 @@ export default function App() {
             <div className="p-3 bg-slate-50 rounded-lg text-xs space-y-1">
               <div><span className="font-semibold">Сотрудник:</span> {selectedTask.submissions?.[0]?.authorFio}</div>
               <div><span className="font-semibold">Задание:</span> {selectedTask.title}</div>
-              <div>
-                <span className="font-semibold">Ссылка на PR:</span>{' '}
-                <a href={selectedTask.submissions?.[0]?.link} target="_blank" rel="noreferrer" className="text-indigo-600 underline font-mono">
-                  {selectedTask.submissions?.[0]?.link}
-                </a>
-              </div>
+              {(selectedTask.submissions?.[0]?.links?.length
+                ? selectedTask.submissions[0].links
+                : selectedTask.submissions?.[0]?.link
+                  ? [selectedTask.submissions[0].link]
+                  : []
+              ).map((link, index) => (
+                <div key={link}>
+                  <span className="font-semibold">Ссылка {index + 1}:</span>{' '}
+                  <a href={link} target="_blank" rel="noreferrer" className="text-indigo-600 underline font-mono">
+                    {link}
+                  </a>
+                </div>
+              ))}
+              {selectedTask.submissions?.[0]?.files?.map((file) => (
+                <div key={file.id || file.name} className="flex items-center justify-between gap-3">
+                  <span><span className="font-semibold">Файл:</span> {file.name}</span>
+                  {file.id && (
+                    <button
+                      type="button"
+                      onClick={() => openSubmissionFile(file)}
+                      className="shrink-0 text-indigo-600 underline"
+                    >
+                      Открыть
+                    </button>
+                  )}
+                </div>
+              ))}
+              {reviewFileError && <p role="alert" className="text-rose-700">{reviewFileError}</p>}
               {selectedTask.submissions?.[0]?.comment && (
                 <div className="text-slate-500 italic mt-1">«{selectedTask.submissions[0].comment}»</div>
               )}
@@ -1829,7 +2229,11 @@ export default function App() {
                 <textarea
                   rows="3"
                   required
-                  placeholder="Ваш комментарий к решению..."
+                  placeholder={
+                    reviewVerdict === 'approved'
+                      ? 'Архитектура чистая, соблюдены SOLID и стандарты. Задание принято!'
+                      : 'Переделайте обработку ошибок и изолируйте бизнес-логику.'
+                  }
                   value={reviewComment}
                   onChange={(e) => setReviewComment(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-600"
